@@ -1,0 +1,51 @@
+name: Bug report
+description: Report incorrect behavior in qilat.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities must not be reported here. See SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: qilat version or commit
+    validations:
+      required: true
+  - type: input
+    id: go
+    attributes:
+      label: Go version and OS/arch
+      placeholder: go1.26.2 linux/amd64
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol
+      multiple: true
+      options:
+        - HTTP/1.1
+        - HTTP/2
+        - HTTP/3
+        - Not protocol specific
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal program or curl command is the most helpful.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error messages, logs, or stack traces.
+    validations:
+      required: true

@@ -1,0 +1,14 @@
+# Build and test artifacts
+*.test
+*.out
+*.prof
+/bin/
+coverage.*
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Internal planning notes, kept out of the public repository
+/plans/

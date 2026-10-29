@@ -1,0 +1,33 @@
+name: Lint
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.x
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: make vet
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - name: golangci-lint (benchmarks)
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+          working-directory: benchmarks
+      - name: govulncheck
+        run: make vuln
