@@ -1,5 +1,11 @@
 package qilat
 
+import "errors"
+
+// ErrAbortHandler is a sentinel panic value to abort a handler. The connection or stream is closed
+// and, unlike other panics, nothing is logged.
+var ErrAbortHandler = errors.New("qilat: abort Handler")
+
 // Handler responds to an HTTP request. Like [net/http.Handler], it must not use w or r after ServeHTTP returns;
 // in qilat both are reused for later requests.
 type Handler interface {

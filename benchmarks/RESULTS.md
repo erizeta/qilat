@@ -1,14 +1,14 @@
 # Benchmark results
 
-Comparison benchmarks for qilat against net/http and fasthttp. qilat itself is added from M2 onward;
-this file currently holds the **M0 baseline** that later milestones are measured against.
+Comparison benchmarks for qilat against net/http and fasthttp. The latest results come first;
+the **M0 baseline** (net/http and fasthttp only) is kept at the end for reference.
 
 ## How to run
 
 ```sh
 cd benchmarks
 go test -run '^$' -bench . -benchmem -benchtime 1s -count 10 ./... > new.txt
-go run golang.org/x/perf/cmd/benchstat@latest results/m0-baseline.txt new.txt
+go run golang.org/x/perf/cmd/benchstat@latest results/m2.txt new.txt
 ```
 
 Or from the repository root: `make bench BENCHCOUNT=10`.
@@ -39,6 +39,48 @@ Flags:
 HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client adds almost no cost.
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
+
+## M2: qilat HTTP/1.1 server
+
+- Same machine and flags as the M0 baseline: Apple M5 (10 cores), macOS 26.4, Go 1.27.3, fasthttp v1.77.0,
+  `-benchtime 1s -count 5 -parallelism 8`. Raw output in [`results/m2.txt`](results/m2.txt).
+- Medians over 5 runs; differences below ~5% are noise.
+
+### Server cost: `inmem` (no kernel), time per request, lower is better
+
+| Scenario | net/http | fasthttp | qilat | qilat allocs/op |
+|---|---|---|---|---|
+| plaintext | 1.12 µs | 250 ns | **245 ns** | 0 |
+| json-1kb | 1.04 µs | 259 ns | **241 ns** | 0 |
+| headers-20 | 1.80 µs | **350 ns** | 431 ns | 0 |
+| upload-64kb | 1.11 µs | 844 ns | **766 ns** | 1 (handler) |
+
+### Pipelined, 16 requests per write
+
+| Scenario | net/http | fasthttp | qilat |
+|---|---|---|---|
+| plaintext | 2.16 µs | 372 ns | **355 ns** |
+| json-1kb | 2.24 µs | 782 ns | **716 ns** |
+| headers-20 | 2.92 µs | 685 ns | **546 ns** |
+
+### TCP keep-alive and new connection per request
+
+On this machine these modes are kernel-bound (see the M0 observations), and all three servers are within ~10%:
+keep-alive plaintext 5.97 µs (net/http), 6.42 µs (fasthttp), 5.85 µs (qilat); new connection 33.6, 36.3, 34.6 µs.
+
+### Allocations
+
+- qilat: **0 allocs/op** for every keep-alive, pipelined, and in-memory scenario except the upload, whose single
+  allocation is the benchmark handler formatting the length (fasthttp's handler has the same one).
+- New connections cost 25 allocs (connection setup, goroutine, buffers): fasthttp 24, net/http 56.
+
+### Observations
+
+- qilat meets the M2 target: faster than net/http in every server-bound scenario (4–5× in `inmem`) and on par with
+  fasthttp, ahead in most scenarios.
+- The remaining gap is `headers-20` in `inmem` (~23% behind fasthttp): each header is validated, lowercased, and
+  copied into the request. Pipelined, where syscalls are amortized but not removed, qilat is ahead.
+- The HTTP/2 rows (net/http only) are unchanged; qilat HTTP/2 arrives in M4.
 
 ## M0 baseline
 

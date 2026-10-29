@@ -43,45 +43,75 @@ Every claim above will be backed by reproducible benchmarks in [`benchmarks/`](b
 go get github.com/erizeta/qilat
 ```
 
-## Available now
+## Quick start
 
-qilat does not serve HTTP yet. The core building blocks the servers are built on are usable today,
-all allocation-free in steady state:
+qilat currently serves **HTTP/1.1** (plain and TLS). HTTP/2 and HTTP/3 follow on the [roadmap](#roadmap).
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	srv := &qilat.Server{
+		Handler: qilat.HandlerFunc(func(w qilat.ResponseWriter, r *qilat.Request) {
+			name := r.URI().Query().Get("name")
+			if name == "" {
+				name = "World"
+			}
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.WriteString("Hello, " + name + "!\n")
+		}),
+	}
+	log.Fatal(srv.ListenAndServe(":8080"))
+}
+```
+
+```sh
+curl 'http://localhost:8080/?name=qilat'   # Hello, qilat!
+```
+
+[`examples/hello`](examples/hello/main.go) is the same server with graceful shutdown on Ctrl+C: `go run ./examples/hello`.
+
+### What the server does
+
+- Keep-alive, pipelining, chunked request and response bodies, `Expect: 100-continue`, HEAD, HTTP/1.0 clients.
+- Strict RFC 9112 parsing that rejects request smuggling patterns (Content-Length with Transfer-Encoding,
+  duplicate lengths, obsolete line folding, bare LF, and more) with the right status code.
+- `Shutdown` drains active requests and closes idle connections; `Close` stops everything at once.
+- `r.Context()` is canceled when the client disconnects, the handler returns, or a `Shutdown` deadline passes.
+- `w.WriteHeader(103)` sends Early Hints; `w.(qilat.Hijacker).Hijack()` takes over the connection.
+- Handler panics are recovered and logged; panic with `qilat.ErrAbortHandler` to abort quietly.
+- Zero allocations per request on keep-alive connections. See [benchmarks](benchmarks/RESULTS.md).
+
+### Safe defaults
+
+Unlike net/http, a zero value means a safe limit, not "unlimited". Set a field to a negative value to disable it.
+
+| Field | Zero value means |
+|---|---|
+| `ReadHeaderTimeout` | 10 s |
+| `IdleTimeout` | 120 s |
+| `MaxHeaderBytes` | 64 KiB (larger headers get 431) |
+| `MaxRequestBodySize` | 4 MiB (larger bodies get 413, or `qilat.ErrBodyTooLarge` while reading) |
+| `ReadTimeout`, `WriteTimeout` | no limit, so slow uploads and streaming responses work |
+| `MaxConcurrentConns` | no limit |
+
+### Building blocks
+
+`Header`, `URI`, and `Args` are usable on their own and allocation-free in steady state:
 
 | Type | What it does |
 |---|---|
 | `Header` | Ordered header fields, lowercase names, case-insensitive lookup, header-injection safe |
 | `URI` | Strict request-target parsing (origin, absolute, authority, asterisk forms), lazy path decoding |
 | `Args` | Query and form decoding compatible with `net/url.ParseQuery` |
-| `Request`, `ResponseWriter`, `Handler` | net/http-style handler types used by the upcoming servers |
 
-```go
-package main
-
-import (
-	"fmt"
-
-	"github.com/erizeta/qilat"
-)
-
-func main() {
-	var u qilat.URI
-	if err := u.Parse([]byte("/users/j%C3%B6rg?tab=posts&page=2")); err != nil {
-		panic(err)
-	}
-	fmt.Println(string(u.Path()))      // /users/jörg
-	fmt.Println(u.Query().Get("page")) // 2
-
-	var h qilat.Header
-	h.Set("Content-Type", "application/json")
-	h.Add("Vary", "Accept-Encoding")
-	h.Add("Vary", "Origin")
-	fmt.Println(h.Get("content-type"))  // application/json
-	fmt.Println(len(h.PeekAll("vary"))) // 2
-}
-```
-
-This program lives in [`examples/core`](examples/core/main.go): `go run ./examples/core`.
+[`examples/core`](examples/core/main.go) shows them in use: `go run ./examples/core`.
 
 ### Request lifetime
 
@@ -92,7 +122,7 @@ canceled when the client disconnects or the handler returns.
 
 ## Planned API
 
-The snippet below shows the intended shape of the server API. **It does not compile yet.**
+The snippet below shows the intended shape of routing and HTTP/3 support. **It does not compile yet.**
 
 ```go
 mux := qilat.NewServeMux()
@@ -112,7 +142,7 @@ log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
 |---|---|---|
 | M0 | Repository, CI, baseline benchmarks, dependency research | ✅ Done |
 | M1 | Core types: `Header`, `URI`, `Request`, `ResponseWriter`, context, pooling | ✅ Done |
-| M2 | HTTP/1.1 server, graceful shutdown | Planned |
+| M2 | HTTP/1.1 server, graceful shutdown | ✅ Done |
 | M3 | `ServeMux` with Go 1.22 patterns | Planned |
 | M4 | HTTP/2 server | Planned |
 | M5 | HTTP/3 server, combined H1/H2/H3 server | Planned |

@@ -1,8 +1,10 @@
 package qilat
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 
 	"github.com/erizeta/qilat/internal/bytesconv"
@@ -23,7 +25,17 @@ type ResponseWriter interface {
 	Flush() error
 }
 
+// Hijacker lets a handler take over the connection. Every qilat ResponseWriter implements it;
+// Hijack returns [ErrNotSupported] when the protocol has no connection to hand over (HTTP/2, HTTP/3).
+type Hijacker interface {
+	Hijack() (net.Conn, *bufio.ReadWriter, error)
+}
+
 var (
+	// ErrNotSupported is returned when the protocol does not support a feature, such as Hijack on HTTP/2.
+	ErrNotSupported = errors.New("qilat: feature not supported")
+	// ErrHijacked is returned by ResponseWriter methods after the connection has been hijacked.
+	ErrHijacked = errors.New("qilat: connection has been hijacked")
 	// ErrBodyNotAllowed is returned by Write when the status code does not allow a body.
 	ErrBodyNotAllowed = errors.New("qilat: request method or response status code does not allow body")
 	// ErrContentLength is returned when the body length differs from a declared Content-Length.
@@ -46,6 +58,7 @@ type response struct {
 	written     int64
 	buf         []byte
 	err         error
+	hijacked    bool
 	dead        bool
 }
 
@@ -68,8 +81,13 @@ func (w *response) WriteHeader(code int) {
 	if code < 100 || code > 999 {
 		panic(fmt.Sprintf("qilat: invalid WriteHeader code %d", code))
 	}
-	// Informational responses need protocol support and will be sent once protocols provide it.
+	// Like net/http, a 1xx status other than 101 is sent at once with the current header, and is not final.
 	if code < 200 && code != 101 {
+		if s, ok := w.sink.(exchange.InformationalSink); ok && w.err == nil && !w.hijacked {
+			if err := s.WriteInformational(code, (*headerList)(&w.header)); err != nil {
+				w.err = err
+			}
+		}
 		return
 	}
 	w.wroteHeader = true
@@ -86,6 +104,9 @@ func (w *response) WriteHeader(code int) {
 
 func (w *response) Write(p []byte) (int, error) {
 	w.live()
+	if w.hijacked {
+		return 0, ErrHijacked
+	}
 	if !w.wroteHeader {
 		w.WriteHeader(200)
 	}
@@ -124,6 +145,9 @@ func (w *response) WriteString(s string) (int, error) {
 
 func (w *response) Flush() error {
 	w.live()
+	if w.hijacked {
+		return ErrHijacked
+	}
 	if !w.wroteHeader {
 		w.WriteHeader(200)
 	}
@@ -142,8 +166,28 @@ func (w *response) Flush() error {
 	return nil
 }
 
+// Hijack hands the connection to the caller. The ResponseWriter must not be used afterwards.
+func (w *response) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.live()
+	if w.hijacked {
+		return nil, nil, ErrHijacked
+	}
+	h, ok := w.sink.(exchange.Hijacker)
+	if !ok {
+		return nil, nil, ErrNotSupported
+	}
+	conn, rw, err := h.Hijack()
+	if err == nil {
+		w.hijacked = true
+	}
+	return conn, rw, err
+}
+
 // finish completes the response after the handler returns.
 func (w *response) finish() error {
+	if w.hijacked {
+		return nil
+	}
 	if !w.wroteHeader {
 		w.WriteHeader(200)
 	}

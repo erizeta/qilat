@@ -6,18 +6,22 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/erizeta/qilat/internal/exchange"
 )
 
 // requestContext is the context returned by [Request.Context]. It is allocated on first use and never reused,
 // so goroutines that keep it past the handler see it canceled rather than attached to a later request.
 type requestContext struct {
 	parent context.Context
+	watch  exchange.DisconnectWatcher // told once when someone starts waiting
 
 	mu         sync.Mutex
 	done       chan struct{} // created lazily by Done
 	err        error
 	stopParent func() bool
 	afters     []*afterFunc
+	watched    bool
 }
 
 type afterFunc struct{ f func() }
@@ -38,6 +42,7 @@ func (c *requestContext) Done() <-chan struct{} {
 			close(c.done)
 		} else {
 			c.watchParentLocked()
+			c.watchDisconnectLocked()
 		}
 	}
 	return c.done
@@ -72,6 +77,7 @@ func (c *requestContext) AfterFunc(f func()) func() bool {
 	}
 	c.afters = append(c.afters, a)
 	c.watchParentLocked()
+	c.watchDisconnectLocked()
 	c.mu.Unlock()
 	return func() bool {
 		c.mu.Lock()
@@ -92,6 +98,14 @@ func (c *requestContext) watchParentLocked() {
 	}
 }
 
+// watchDisconnectLocked runs only while the context is live, so the watcher never sees a released request.
+func (c *requestContext) watchDisconnectLocked() {
+	if !c.watched && c.watch != nil {
+		c.watched = true
+		c.watch.WatchDisconnect()
+	}
+}
+
 func (c *requestContext) cancel(err error) {
 	c.mu.Lock()
 	if c.err != nil {
@@ -99,6 +113,7 @@ func (c *requestContext) cancel(err error) {
 		return
 	}
 	c.err = err
+	c.watch = nil
 	if c.done != nil {
 		close(c.done)
 	}
@@ -119,13 +134,14 @@ func (c *requestContext) cancel(err error) {
 type requestState struct {
 	ctx      atomic.Pointer[requestContext]
 	canceled atomic.Bool
+	watcher  exchange.DisconnectWatcher // set by the protocol before Serve
 }
 
 func (s *requestState) context(parent context.Context) context.Context {
 	if c := s.ctx.Load(); c != nil {
 		return c
 	}
-	c := &requestContext{parent: parent}
+	c := &requestContext{parent: parent, watch: s.watcher}
 	if !s.ctx.CompareAndSwap(nil, c) {
 		return s.ctx.Load()
 	}
@@ -146,4 +162,5 @@ func (s *requestState) cancel() {
 func (s *requestState) reset() {
 	s.ctx.Store(nil)
 	s.canceled.Store(false)
+	s.watcher = nil
 }

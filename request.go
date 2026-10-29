@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/erizeta/qilat/internal/bytesconv"
+	"github.com/erizeta/qilat/internal/exchange"
 )
 
 // Request is an HTTP request received by a server. It is pooled: the Request and every byte slice it
@@ -218,6 +219,9 @@ func (r *Request) setProto(major, minor int) {
 		r.proto = "HTTP/" + strconv.Itoa(major) + "." + strconv.Itoa(minor)
 	}
 }
+
+// ErrBodyTooLarge is returned when reading a request body that exceeds [Server.MaxRequestBodySize].
+var ErrBodyTooLarge = exchange.ErrBodyTooLarge
 
 type noBody struct{}
 

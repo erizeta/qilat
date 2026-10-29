@@ -5,12 +5,14 @@ import (
 	"errors"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/erizeta/qilat"
 	"github.com/valyala/fasthttp"
 )
 
@@ -23,6 +25,7 @@ type serverImpl struct {
 var h1Servers = []serverImpl{
 	{name: "nethttp", start: startNetHTTP(false)},
 	{name: "fasthttp", start: startFastHTTP},
+	{name: "qilat", start: startQilat},
 }
 
 var h2Servers = []serverImpl{
@@ -133,6 +136,50 @@ func startFastHTTP(tb testing.TB, ln net.Listener) func() {
 		}
 		if err := <-done; err != nil {
 			tb.Errorf("fasthttp serve: %v", err)
+		}
+	}
+}
+
+func qilatHandler(w qilat.ResponseWriter, r *qilat.Request) {
+	switch string(r.Path()) {
+	case "/plaintext":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.WriteString(plaintextBody)
+	case "/json":
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jsonBody)
+	case "/headers":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write(r.Header.Peek(targetHeader))
+	case "/upload":
+		n, err := io.Copy(io.Discard, r.Body)
+		if err != nil {
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		var num [20]byte
+		_, _ = w.Write(strconv.AppendInt(num[:0], n, 10))
+	default:
+		w.WriteHeader(404)
+	}
+}
+
+func startQilat(tb testing.TB, ln net.Listener) func() {
+	srv := &qilat.Server{
+		Handler:  qilat.HandlerFunc(qilatHandler),
+		ErrorLog: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(ln) }()
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			tb.Errorf("qilat shutdown: %v", err)
+		}
+		if err := <-done; !errors.Is(err, qilat.ErrServerClosed) {
+			tb.Errorf("qilat serve: %v", err)
 		}
 	}
 }

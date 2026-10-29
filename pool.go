@@ -3,8 +3,11 @@ package qilat
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
+	"runtime/debug"
 	"sync"
 
 	"github.com/erizeta/qilat/internal/exchange"
@@ -16,6 +19,7 @@ type exchangeConfig struct {
 	baseCtx context.Context
 	// poison makes released requests and writers panic on use instead of returning them to the pool.
 	poison bool
+	logger *slog.Logger
 }
 
 // serverExchange is the core side of one request/response pair, driven by a protocol.
@@ -61,10 +65,23 @@ func (x *serverExchange) SetConn(remoteAddr net.Addr, tlsState *tls.ConnectionSt
 	x.req.tls = tlsState
 }
 
-func (x *serverExchange) Serve(w exchange.ResponseSink) error {
+func (x *serverExchange) SetDisconnectWatcher(w exchange.DisconnectWatcher) { x.req.st.watcher = w }
+
+var errHandlerPanic = errors.New("qilat: handler panicked")
+
+func (x *serverExchange) Serve(w exchange.ResponseSink) (err error) {
 	x.resp.init(w, &x.req)
 	// Like net/http, the request context is canceled once the handler returns.
 	defer x.req.st.cancel()
+	defer func() {
+		if v := recover(); v != nil {
+			if v != ErrAbortHandler && x.cfg.logger != nil { //nolint:errorlint // panic values are compared, not wrapped
+				x.cfg.logger.Error("qilat: panic serving request",
+					"method", x.req.method, "uri", x.req.uri.String(), "panic", v, "stack", string(debug.Stack()))
+			}
+			err = errHandlerPanic
+		}
+	}()
 	x.cfg.handler.ServeHTTP(&x.resp, &x.req)
 	return x.resp.finish()
 }

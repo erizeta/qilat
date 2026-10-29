@@ -3,10 +3,15 @@
 package exchange
 
 import (
+	"bufio"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 )
+
+// ErrBodyTooLarge is returned by request body readers when the body exceeds the server limit.
+var ErrBodyTooLarge = errors.New("qilat: request body too large")
 
 // Exchange is one request and its response, implemented by the core.
 // A protocol fills the request, calls Serve once, and calls Release when it no longer uses the exchange.
@@ -20,6 +25,8 @@ type Exchange interface {
 	// SetBody sets the request body; contentLength is -1 when unknown. A nil body means no body.
 	SetBody(body io.Reader, contentLength int64)
 	SetConn(remoteAddr net.Addr, tlsState *tls.ConnectionState)
+	// SetDisconnectWatcher registers w, which is told once when the handler starts waiting on the request context.
+	SetDisconnectWatcher(w DisconnectWatcher)
 
 	// Serve runs the handler and writes the response to w. A non-nil error means the response is
 	// incomplete or broken, so the protocol must not reuse the connection or stream.
@@ -46,4 +53,20 @@ type ResponseSink interface {
 	Flush() error
 	// Finish ends the response.
 	Finish() error
+}
+
+// DisconnectWatcher lets a protocol detect client disconnects only for handlers that wait on the request
+// context, since detection costs a goroutine on HTTP/1.1. WatchDisconnect must not block.
+type DisconnectWatcher interface {
+	WatchDisconnect()
+}
+
+// InformationalSink is implemented by sinks that can send 1xx responses before the final response.
+type InformationalSink interface {
+	WriteInformational(status int, header HeaderList) error
+}
+
+// Hijacker is implemented by sinks that can hand the underlying connection to the handler.
+type Hijacker interface {
+	Hijack() (net.Conn, *bufio.ReadWriter, error)
 }
