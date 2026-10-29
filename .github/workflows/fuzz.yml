@@ -7,7 +7,7 @@ on:
     inputs:
       fuzztime:
         description: Duration per fuzz target
-        default: 5m
+        default: 10m
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ permissions:
 jobs:
   fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -24,7 +24,7 @@ jobs:
       - name: Fuzz
         run: ./scripts/fuzz.sh
         env:
-          FUZZTIME: ${{ inputs.fuzztime || '5m' }}
+          FUZZTIME: ${{ inputs.fuzztime || '10m' }}
       - name: Upload failing inputs
         if: failure()
         uses: actions/upload-artifact@v4

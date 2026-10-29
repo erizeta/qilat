@@ -12,6 +12,11 @@ linters:
       - path: _test\.go
         linters:
           - gosec
+      # Test handlers implement fixed signatures and often ignore one argument.
+      - path: _test\.go
+        linters:
+          - revive
+        text: unused-parameter
 
 formatters:
   enable:

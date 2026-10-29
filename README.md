@@ -43,9 +43,56 @@ Every claim above will be backed by reproducible benchmarks in [`benchmarks/`](b
 go get github.com/erizeta/qilat
 ```
 
+## Available now
+
+qilat does not serve HTTP yet. The core building blocks the servers are built on are usable today,
+all allocation-free in steady state:
+
+| Type | What it does |
+|---|---|
+| `Header` | Ordered header fields, lowercase names, case-insensitive lookup, header-injection safe |
+| `URI` | Strict request-target parsing (origin, absolute, authority, asterisk forms), lazy path decoding |
+| `Args` | Query and form decoding compatible with `net/url.ParseQuery` |
+| `Request`, `ResponseWriter`, `Handler` | net/http-style handler types used by the upcoming servers |
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	var u qilat.URI
+	if err := u.Parse([]byte("/users/j%C3%B6rg?tab=posts&page=2")); err != nil {
+		panic(err)
+	}
+	fmt.Println(string(u.Path()))      // /users/jörg
+	fmt.Println(u.Query().Get("page")) // 2
+
+	var h qilat.Header
+	h.Set("Content-Type", "application/json")
+	h.Add("Vary", "Accept-Encoding")
+	h.Add("Vary", "Origin")
+	fmt.Println(h.Get("content-type"))  // application/json
+	fmt.Println(len(h.PeekAll("vary"))) // 2
+}
+```
+
+This program lives in [`examples/core`](examples/core/main.go): `go run ./examples/core`.
+
+### Request lifetime
+
+Like fasthttp, qilat reuses requests between clients. A `*Request`, its `Header`, and every `[]byte` it returns
+are valid only until `ServeHTTP` returns. Copy what you need, or call `r.Clone(ctx)` to keep the whole request.
+`r.Context()` is the exception: it is never reused, so it is safe to pass to goroutines, and like net/http it is
+canceled when the client disconnects or the handler returns.
+
 ## Planned API
 
-The snippet below shows the intended shape of the API. **It does not compile yet.**
+The snippet below shows the intended shape of the server API. **It does not compile yet.**
 
 ```go
 mux := qilat.NewServeMux()
@@ -63,8 +110,8 @@ log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 | Repository, CI, baseline benchmarks, dependency research | 🚧 In progress |
-| M1 | Core types: `Header`, `URI`, `Request`, `ResponseWriter`, context, pooling | Planned |
+| M0 | Repository, CI, baseline benchmarks, dependency research | ✅ Done |
+| M1 | Core types: `Header`, `URI`, `Request`, `ResponseWriter`, context, pooling | ✅ Done |
 | M2 | HTTP/1.1 server, graceful shutdown | Planned |
 | M3 | `ServeMux` with Go 1.22 patterns | Planned |
 | M4 | HTTP/2 server | Planned |
