@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main"]
+  path_filters:
+    - "!**/testdata/fuzz/**"
+    - "!benchmarks/results/**"
+    - "!**/go.sum"
+  path_instructions:
+    - path: "**/*.go"
+      instructions: >-
+        Do not use standard library APIs newer than the minimum Go version in go.mod.
+        Flag behavior changes without tests, and parser or protocol changes without fuzz targets.
+    - path: "internal/h{2,3}/**"
+      instructions: >-
+        Check framing, HPACK/QPACK, and flow-control code against the relevant RFCs;
+        flag unbounded allocations and missing limits on peer-controlled sizes.
+    - path: "examples/readme/**"
+      instructions: These programs mirror README snippets verbatim; changes must match README.md.
+  tools:
+    golangci-lint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true
+chat:
+  auto_reply: true
