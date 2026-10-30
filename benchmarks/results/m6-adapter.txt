@@ -1,0 +1,76 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat
+cpu: Apple M5
+BenchmarkAdapterNative-10               	 7728754	       139.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8723365	       138.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8682436	       137.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8665581	       137.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8551682	       135.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8757056	       142.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8518605	       138.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8445254	       139.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8737500	       136.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterNative-10               	 8933636	       136.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdapterFromStd-10              	 2073900	       566.7 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2049385	       584.0 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2148704	       558.9 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2184006	       556.6 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2167834	       548.4 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2075718	       560.1 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2182555	       550.4 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2174242	       575.5 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2147976	       551.7 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStd-10              	 2193862	       545.5 ns/op	    1081 B/op	      10 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1338825	       964.3 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1161555	      1070 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1000000	      1207 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1253234	       952.7 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1271044	       937.3 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1312168	       920.7 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1294357	       923.7 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1334787	      1026 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1000000	      1331 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterFromStdMiddleware-10    	 1000000	      1003 ns/op	    1113 B/op	      13 allocs/op
+BenchmarkAdapterToStd-10                	 4468786	       268.3 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4536230	       265.8 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4584164	       267.3 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4543057	       266.5 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4450413	       266.8 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4563888	       275.4 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4440646	       279.8 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4468238	       272.9 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4117503	       272.6 ns/op	      64 B/op	       5 allocs/op
+BenchmarkAdapterToStd-10                	 4604721	       265.1 ns/op	      64 B/op	       5 allocs/op
+BenchmarkCompress/small-10              	 6165289	       196.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6120786	       196.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6086936	       198.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6009717	       194.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6115464	       196.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6317960	       193.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6197772	       198.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 5923118	       194.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6124484	       202.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/small-10              	 6093375	       197.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 6650114	       170.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7217538	       172.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7230565	       167.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7027951	       171.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7126320	       168.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7144864	       177.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7124838	       169.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7241044	       170.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7045191	       174.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-identity-10     	 7100002	       169.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  541526	      2264 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  538525	      2230 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  527696	      2310 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  541734	      2246 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  551128	      2210 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  537362	      2226 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  541768	      2257 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  515968	      2266 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  538750	      2225 ns/op	       1 B/op	       0 allocs/op
+BenchmarkCompress/large-gzip-10         	  546168	      2223 ns/op	       1 B/op	       0 allocs/op
+PASS
+ok  	github.com/erizeta/qilat	84.651s

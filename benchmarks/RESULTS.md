@@ -96,6 +96,33 @@ cost and most of the allocations here, so the gap is smaller than with h2load.
   fields that are not in the client's dynamic table; responses are encoded without allocating.
 - Conformance: h2spec 147/147 in strict mode over TLS (run in CI by `TestH2Spec`).
 
+## M6: net/http adapters and compression
+
+- Benchmarks in the root package (not this module): one request with three header fields runs through a pooled
+  exchange into a no-op sink, so only the core and the adapter are measured. Raw output in
+  [`results/m6-adapter.txt`](results/m6-adapter.txt).
+- Same machine and Go version as M2, `-count 10`, medians.
+
+```sh
+go test -run '^$' -bench 'Adapter|Compress' -benchmem -count 10 .
+```
+
+| Handler | Time | B/op | allocs/op |
+|---|---|---|---|
+| Native qilat handler | 140 ns | 0 | 0 |
+| `FromStd(http.Handler)` | 561 ns | 1081 | 10 |
+| `FromStdMiddleware(pass-through)` around a qilat handler | 944 ns | 1113 | 13 |
+| `ToStd(Handler)` on a minimal net/http writer | 263 ns | 64 | 5 |
+| `Compress`, 13-byte body (too small, sent as is) | 194 ns | 0 | 0 |
+| `Compress`, 3.6 KB text, client without gzip | 170 ns | 0 | 0 |
+| `Compress`, 3.6 KB text, gzip `BestSpeed` | 2.25 µs | 0 | 0 |
+
+- `FromStd` allocates what a net/http handler is allowed to keep: the `*http.Request`, its URL, the header map
+  (all values share one string), and the request context. The ResponseWriter wrapper is pooled.
+- `FromStdMiddleware` pays for `FromStd` plus `ToStd`, so compose net/http middleware into one chain and adapt
+  it once.
+- The compression middleware and its gzip writers are pooled: no allocations per request.
+
 ## M3: ServeMux dispatch
 
 - `BenchmarkServeMux` in the root package (not this module): the same 10 patterns are registered in

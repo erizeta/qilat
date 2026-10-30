@@ -2,6 +2,7 @@ package h1
 
 import (
 	"bufio"
+	"io"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -20,6 +21,7 @@ var (
 	_ exchange.InformationalSink = (*sink)(nil)
 	_ exchange.Hijacker          = (*sink)(nil)
 	_ exchange.TrailerSink       = (*sink)(nil)
+	_ exchange.ReaderFromSink    = (*sink)(nil)
 )
 
 func (s *sink) WriteHeader(status int, h exchange.HeaderList, contentLength int64) error {
@@ -93,6 +95,10 @@ func (s *sink) Write(p []byte) (int, error) {
 }
 
 func (s *sink) Flush() error { return s.c.bw.Flush() }
+
+// ReadFrom copies a body of known length. Once its buffer is flushed, bufio hands the copy to the
+// connection's ReadFrom, which is sendfile for a file on a plain TCP connection.
+func (s *sink) ReadFrom(r io.Reader) (int64, error) { return s.c.bw.ReadFrom(r) }
 
 func (s *sink) Finish() error {
 	c := s.c

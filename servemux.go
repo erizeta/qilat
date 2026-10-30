@@ -336,24 +336,11 @@ func redirectHandler(loc string) Handler {
 
 var htmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&#34;", "'", "&#39;")
 
-var notFoundHandler = HandlerFunc(func(w ResponseWriter, _ *Request) {
-	writeError(w, "404 page not found", 404)
-})
+var notFoundHandler = HandlerFunc(NotFound)
 
 func methodNotAllowedHandler(allow string) Handler {
 	return HandlerFunc(func(w ResponseWriter, _ *Request) {
 		w.Header().Set("allow", allow)
-		writeError(w, "Method Not Allowed", 405)
+		Error(w, "Method Not Allowed", 405)
 	})
-}
-
-// writeError replies with a plain-text error, like net/http.Error.
-func writeError(w ResponseWriter, msg string, code int) {
-	h := w.Header()
-	h.Del("content-length")
-	h.Set("content-type", "text/plain; charset=utf-8")
-	h.Set("x-content-type-options", "nosniff")
-	w.WriteHeader(code)
-	_, _ = w.WriteString(msg)
-	_, _ = w.WriteString("\n")
 }

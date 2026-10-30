@@ -31,6 +31,8 @@ qilat aims for both:
 | Zero-allocation hot path | ❌ | ✅ | ✅ |
 | Streaming request/response bodies | ✅ | partial | ✅ |
 | Adapters to and from `net/http` | — | partial | ✅ |
+| `FileServer` with Range, conditional requests, and sendfile | ✅ | ✅ | ✅ |
+| Response compression (gzip, pluggable zstd/br) | ❌ | ✅ | ✅ allocation-free |
 
 Every claim above will be backed by reproducible benchmarks in [`benchmarks/`](benchmarks/) before release.
 
@@ -259,6 +261,146 @@ In production, pass your certificate files instead: `srv.ListenAndServeTLS(":443
 - QUIC needs UDP: open the UDP port in firewalls and load balancers. On Linux, quic-go may ask you to raise
   `net.core.rmem_max` for large receive buffers.
 
+### net/http handlers and middleware
+
+`qilat.FromStd` runs any `http.Handler` on qilat, over all three protocols, and `qilat.ToStd` mounts a qilat
+handler on a net/http server. `qilat.FromStdMiddleware` adapts `func(http.Handler) http.Handler` middleware, so
+packages such as [chi/middleware](https://github.com/go-chi/chi) and [rs/cors](https://github.com/rs/cors)
+work unchanged:
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/erizeta/qilat"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/cors"
+)
+
+func main() {
+	mux := qilat.NewServeMux()
+	mux.HandleFunc("GET /hello/{name}", func(w qilat.ResponseWriter, r *qilat.Request) {
+		_, _ = w.WriteString("hello " + r.PathValue("name") + ", request " + middleware.GetReqID(r.Context()) + "\n")
+	})
+	// Compose the net/http middleware first, then adapt the chain once.
+	std := chi.Chain(
+		middleware.RequestID,
+		middleware.Heartbeat("/ping"),
+		middleware.Recoverer,
+		cors.New(cors.Options{AllowedOrigins: []string{"https://example.com"}}).Handler,
+	)
+	h := qilat.FromStdMiddleware(std.Handler)(mux)
+	log.Fatal((&qilat.Server{Handler: h}).ListenAndServe(":8080"))
+}
+```
+
+```sh
+go get github.com/go-chi/chi/v5 github.com/rs/cors
+curl -i -H 'Origin: https://example.com' localhost:8080/hello/qilat   # Access-Control-Allow-Origin: https://example.com
+```
+
+[`examples/std-middleware`](examples/std-middleware/main.go) is a separate module (so qilat does not depend on chi
+or cors) whose test runs this chain over HTTP/1.1, HTTP/2, and HTTP/3: `cd examples/std-middleware && go run .`.
+
+- The `*http.Request` given to a net/http handler has the URL, canonical header map, `Host`, `RemoteAddr`, `TLS`,
+  request context, and the `ServeMux` pattern and path values. Like in net/http it may be kept after the handler
+  returns; its `Body` may not.
+- The `http.ResponseWriter` behaves like net/http's: the header is captured at `WriteHeader`, a missing
+  `Content-Type` is sniffed, trailers work through the `Trailer` header or `http.TrailerPrefix`, and
+  `http.ErrAbortHandler` aborts quietly. It implements `http.Flusher`, `http.ResponseController`'s `FlushError`,
+  and `http.Hijacker` on HTTP/1.x only.
+- `qilat.Chain(a, b)(h)` is `a(b(h))`: middleware runs in the order listed. Native middleware is
+  `func(qilat.Handler) qilat.Handler`.
+- Adapters cost allocations that native handlers avoid: about 0.4 µs and 10 allocations for `FromStd`, and twice
+  that for `FromStdMiddleware`, which converts the request both ways.
+  See [benchmarks](benchmarks/RESULTS.md#m6-nethttp-adapters-and-compression).
+
+### Static files
+
+`qilat.FileServer` serves an `fs.FS` with the behavior of `http.FileServerFS`, and is tested against it response
+for response:
+
+```go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	mux := qilat.NewServeMux()
+	mux.Handle("GET /static/", qilat.StripPrefix("/static", qilat.FileServer(os.DirFS("public"))))
+	log.Fatal((&qilat.Server{Handler: qilat.Compress(0)(mux)}).ListenAndServe(":8080"))
+}
+```
+
+```sh
+curl -i localhost:8080/static/index.html            # 301 to ./, then serves index.html
+curl -H 'Range: bytes=0-99' localhost:8080/static/app.js   # 206 Partial Content
+```
+
+[`examples/static`](examples/static/main.go) serves embedded files next to a JSON API: `go run ./examples/static`.
+
+- Range requests (including multipart/byteranges), `If-Modified-Since`, `If-None-Match`, `If-Match`,
+  `If-Unmodified-Since`, `If-Range`, `Content-Type` from the extension or by sniffing, `index.html`, and directory
+  listings. Paths are cleaned, so requests cannot leave the file system.
+- On HTTP/1.1 without TLS, an `*os.File` is sent with sendfile; `io.Copy` to a qilat `ResponseWriter` gets the
+  same path.
+- `qilat.ServeFile` and `qilat.ServeContent` work like their net/http namesakes; `qilat.Error`, `qilat.NotFound`,
+  and `qilat.StripPrefix` too. Unlike net/http, the path left by `StripPrefix` always starts with `/`.
+
+### Compression
+
+`qilat.Compress(level)` gzips responses for clients that accept it. `qilat.CompressWith` sets the minimum size and
+adds codings such as zstd or Brotli from any library with a `Reset`-able writer:
+
+```go
+package main
+
+import (
+	"io"
+	"log"
+
+	"github.com/erizeta/qilat"
+	"github.com/klauspost/compress/zstd"
+)
+
+func main() {
+	mux := qilat.NewServeMux()
+	mux.HandleFunc("GET /", func(w qilat.ResponseWriter, _ *qilat.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		for range 100 {
+			_, _ = w.WriteString("compressible text\n")
+		}
+	})
+	zstdEncoder := qilat.Encoder{Name: "zstd", New: func(w io.Writer) qilat.CompressWriter {
+		enc, _ := zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedFastest))
+		return enc
+	}}
+	compress := qilat.CompressWith(qilat.CompressConfig{Encoders: []qilat.Encoder{zstdEncoder}})
+	log.Fatal((&qilat.Server{Handler: compress(mux)}).ListenAndServe(":8080"))
+}
+```
+
+```sh
+curl -sI -H 'Accept-Encoding: zstd, gzip' localhost:8080   # Content-Encoding: zstd
+curl -sI -H 'Accept-Encoding: gzip' localhost:8080         # Content-Encoding: gzip
+```
+
+- The coding is chosen from `Accept-Encoding` q-values; on a tie, extra encoders win over gzip in the order given.
+- Skipped: bodies under 1 KiB (`MinSize`), responses that already have `Content-Encoding`, Range requests and
+  `206`, `text/event-stream` (so server-sent events still stream), `Cache-Control: no-transform`, and types that do
+  not compress, such as images and archives.
+- Compressible responses get `Vary: Accept-Encoding`, and a strong `ETag` becomes weak. `Flush` flushes the
+  compressor too, so compressed streams arrive as they are written.
+- Writers are pooled: compressing allocates nothing per request.
+
 ### Request lifetime
 
 Like fasthttp, qilat reuses requests between clients. A `*Request`, its `Header`, and every `[]byte` it returns
@@ -276,7 +418,7 @@ canceled when the client disconnects or the handler returns.
 | M3 | `ServeMux` with Go 1.22 patterns | ✅ Done |
 | M4 | HTTP/2 server | ✅ Done |
 | M5 | HTTP/3 server, combined H1/H2/H3 server | ✅ Done |
-| M6 | net/http adapters, `FileServer`, compression | Planned |
+| M6 | net/http adapters, `FileServer`, compression | ✅ Done |
 | M7 | Client and Transport (H1/H2/H3) | Planned |
 | M8 | Fuzzing, security review, documentation, v0.1.0 | Planned |
 

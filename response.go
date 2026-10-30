@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 
@@ -174,6 +175,44 @@ func (w *response) Flush() error {
 		return err
 	}
 	return nil
+}
+
+// ReadFrom copies src to the body. With a declared Content-Length on HTTP/1.1, the copy bypasses Write and
+// uses sendfile when src is a file, so io.Copy and FileServer get it automatically.
+func (w *response) ReadFrom(src io.Reader) (int64, error) {
+	w.live()
+	if !w.wroteHeader && !w.hijacked {
+		w.WriteHeader(200)
+	}
+	rf, ok := w.sink.(exchange.ReaderFromSink)
+	remaining := w.declared - w.written
+	// Small bodies are better buffered, so they keep an exact Content-Length and go out in one write.
+	if !ok || w.hijacked || w.head || w.noBody || w.err != nil || w.declared < 0 || remaining <= responseBufferSize {
+		return copyBuffered(w, src)
+	}
+	if !w.sentHeader {
+		if err := w.sendHeader(w.declared); err != nil {
+			return 0, err
+		}
+	}
+	// sendfile looks through one *io.LimitedReader only, so reuse the caller's when it is already short enough.
+	lr, ok := src.(*io.LimitedReader)
+	if !ok || lr.N > remaining {
+		lr = &io.LimitedReader{R: src, N: remaining}
+	}
+	n, err := rf.ReadFrom(lr)
+	w.written += n
+	if err != nil {
+		w.err = err
+		return n, err
+	}
+	if w.written == w.declared {
+		var b [1]byte
+		if m, _ := src.Read(b[:]); m > 0 {
+			return n, ErrContentLength
+		}
+	}
+	return n, nil
 }
 
 // Trailer returns the trailer fields to send after the body. See [TrailerSetter].

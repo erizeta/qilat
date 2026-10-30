@@ -83,3 +83,9 @@ type TrailerSink interface {
 type CompleteSink interface {
 	WriteComplete(status int, header HeaderList, contentLength int64, body []byte, trailer HeaderList) error
 }
+
+// ReaderFromSink is implemented by sinks that can copy a body from a reader without going through Write,
+// such as with sendfile. The core calls it only after WriteHeader with a known content length.
+type ReaderFromSink interface {
+	ReadFrom(r io.Reader) (int64, error)
+}

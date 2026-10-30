@@ -1,6 +1,7 @@
 package qilat
 
 import (
+	"io"
 	"net"
 	"time"
 
@@ -99,4 +100,12 @@ func (c *prefixConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	return c.Conn.Read(p)
+}
+
+// ReadFrom keeps sendfile available on HTTP/1.1 connections served with H2C enabled.
+func (c *prefixConn) ReadFrom(r io.Reader) (int64, error) {
+	if rf, ok := c.Conn.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
+	}
+	return copyBuffered(c.Conn, r)
 }
