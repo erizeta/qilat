@@ -33,6 +33,7 @@ qilat aims for both:
 | Adapters to and from `net/http` | — | partial | ✅ |
 | `FileServer` with Range, conditional requests, and sendfile | ✅ | ✅ | ✅ |
 | Response compression (gzip, pluggable zstd/br) | ❌ | ✅ | ✅ allocation-free |
+| HTTP client | ✅ H1, H2 | ✅ H1 | ✅ H1, H2, H3, allocation-free |
 
 Every claim above will be backed by reproducible benchmarks in [`benchmarks/`](benchmarks/) before release.
 
@@ -401,6 +402,69 @@ curl -sI -H 'Accept-Encoding: gzip' localhost:8080         # Content-Encoding: g
   compressor too, so compressed streams arrive as they are written.
 - Writers are pooled: compressing allocates nothing per request.
 
+### HTTP client
+
+`qilat.Client` sends requests over HTTP/1.1, HTTP/2, and HTTP/3. Like fasthttp, requests and responses come
+from pools, so a request does not allocate; like net/http, cancellation and timeouts follow the request context.
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	client := &qilat.Client{
+		Transport: &qilat.Transport{EnableHTTP3: true},
+		Timeout:   10 * time.Second,
+	}
+	req := qilat.AcquireRequest()
+	defer qilat.ReleaseRequest(req)
+	if err := req.SetRequestURI("https://www.cloudflare.com/"); err != nil {
+		log.Fatal(err)
+	}
+	resp := qilat.AcquireResponse()
+	defer qilat.ReleaseResponse(resp)
+	for range 2 {
+		if err := client.Do(req, resp); err != nil {
+			log.Fatal(err)
+		}
+		body, err := resp.ReadBody()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(resp.Proto(), resp.StatusCode(), len(body), "bytes")
+	}
+	// HTTP/2.0 200 ... bytes
+	// HTTP/3.0 200 ... bytes  (the first response advertised HTTP/3 with Alt-Svc)
+}
+```
+
+[`examples/client`](examples/client/main.go) does the same for any URL: `go run ./examples/client https://example.com/`.
+
+- `Transport` keeps HTTP/1.1 connections per host (`MaxConnsPerHost`, `MaxIdleConnsPerHost`, `IdleConnTimeout`)
+  and uses HTTP/2 when the server offers it through ALPN, multiplexing requests on one connection.
+- With `EnableHTTP3`, HTTPS requests switch to HTTP/3 once the host advertises it with `Alt-Svc` (cached for
+  its `ma`). If QUIC cannot connect within `HTTP3DialTimeout`, for example because UDP is blocked, the request
+  falls back to TCP and the host stays on TCP for five minutes.
+- `resp.Body` streams the body; `resp.ReadBody()` reads all of it into a reused buffer, up to
+  `MaxResponseBodySize` (64 MiB by default). Read to EOF or release the response to free the connection.
+- Canceling the request context (`req.WithContext(ctx)`) or reaching `Client.Timeout` stops the request even in
+  the middle of the body: the HTTP/1.1 connection is closed, and the HTTP/2 or HTTP/3 stream is reset.
+- Redirects are followed up to 10 times; `CheckRedirect` can stop earlier, and credentials are dropped when
+  the redirect leaves the host. 307 and 308 resend the body when it is an `io.Seeker`.
+- Idempotent requests without a body are retried once when the server closed the connection before acting on
+  them, such as a stale keep-alive connection or an HTTP/2 stream refused by `GOAWAY`.
+- `Proxy` sends HTTPS through an HTTP `CONNECT` tunnel and plain HTTP in absolute form, with
+  `Proxy-Authorization` from the proxy URL; `qilat.ProxyFromEnvironment` reads `HTTP_PROXY` and friends.
+- HTTP/1.1 throughput matches `fasthttp.Client` and is ahead of `net/http.Client`, with no allocations per
+  request. See [benchmarks](benchmarks/RESULTS.md#m7-http11-client).
+
 ### Request lifetime
 
 Like fasthttp, qilat reuses requests between clients. A `*Request`, its `Header`, and every `[]byte` it returns
@@ -419,7 +483,7 @@ canceled when the client disconnects or the handler returns.
 | M4 | HTTP/2 server | ✅ Done |
 | M5 | HTTP/3 server, combined H1/H2/H3 server | ✅ Done |
 | M6 | net/http adapters, `FileServer`, compression | ✅ Done |
-| M7 | Client and Transport (H1/H2/H3) | Planned |
+| M7 | Client and Transport (H1/H2/H3) | ✅ Done |
 | M8 | Fuzzing, security review, documentation, v0.1.0 | Planned |
 
 ## Contributing

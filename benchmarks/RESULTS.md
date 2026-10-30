@@ -96,6 +96,29 @@ cost and most of the allocations here, so the gap is smaller than with h2load.
   fields that are not in the client's dynamic table; responses are encoded without allocating.
 - Conformance: h2spec 147/147 in strict mode over TLS (run in CI by `TestH2Spec`).
 
+## M7: HTTP/1.1 client
+
+- `BenchmarkClientH1`: `qilat.Client`, `net/http.Client`, and `fasthttp.Client` send the same requests to the
+  same fasthttp server over loopback with keep-alive, `-parallelism 8`, each with an idle pool large enough
+  for every goroutine. Raw output in [`results/m7-client.txt`](results/m7-client.txt).
+- Same machine and Go version as M2, `-count 10`, medians. Time per request, lower is better.
+
+```sh
+cd benchmarks && go test -run '^$' -bench 'ClientH1' -benchmem -count 10 .
+```
+
+| Scenario | net/http | fasthttp | qilat | net/http allocs | fasthttp allocs | qilat allocs |
+|---|---|---|---|---|---|---|
+| plaintext | 6.14 µs | 5.73 µs | **5.75 µs** | 48 | 0 | 0 |
+| json-1kb | 5.99 µs | 5.79 µs | **5.79 µs** | 48 | 0 | 0 |
+| headers-20 | 7.38 µs | 5.74 µs | **5.70 µs** | 78 | 0 | 0 |
+| upload-64kb | 12.89 µs | 9.29 µs | **9.29 µs** | 58 | 1 | 1 |
+
+- The GET scenarios are bound by the loopback round trip, where the three clients differ by less than 7%;
+  allocations and the upload show the client's own cost.
+- qilat sends a `bytes.Reader` or `strings.Reader` body in one write and reuses the request, response, and
+  connection buffers, so a request does not allocate.
+
 ## M6: net/http adapters and compression
 
 - Benchmarks in the root package (not this module): one request with three header fields runs through a pooled

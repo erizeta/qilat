@@ -12,8 +12,9 @@ import (
 	"github.com/erizeta/qilat/internal/exchange"
 )
 
-// Request is an HTTP request received by a server. It is pooled: the Request and every byte slice it
-// returns are valid only until ServeHTTP returns. Use [Request.Clone] to keep a request longer.
+// Request is an HTTP request received by a server, or one sent by a [Client]. It is pooled: a server's
+// Request and every byte slice it returns are valid only until ServeHTTP returns, and a client's until
+// [ReleaseRequest]. Use [Request.Clone] to keep a request longer.
 type Request struct {
 	// Header holds the request header fields. The Host header is available from [Request.Host] instead.
 	Header *Header
