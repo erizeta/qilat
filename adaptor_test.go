@@ -362,7 +362,9 @@ func TestFromStdMiddlewareAndChain(t *testing.T) {
 	})
 	h := Chain(qilatMW("a"), FromStdMiddleware(stdMW), qilatMW("b"))(mux)
 	for _, c := range startAllProtocols(t, h) {
+		mu.Lock()
 		order = nil
+		mu.Unlock()
 		resp, err := c.client.Get(c.base + "/users/42") //nolint:bodyclose // readAll closes the body
 		if body := readAll(t, resp, err); body != "42 from std" || resp.Header.Get("X-Std") != "1" {
 			t.Errorf("%s: %q %v", c.name, body, resp.Header)
