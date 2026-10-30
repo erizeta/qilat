@@ -175,6 +175,7 @@ func TestSameResponseOnAllProtocols(t *testing.T) {
 		_ = srv.Shutdown(context.Background())
 		wg.Wait()
 	}()
+	waitAltSvc(t, srv)
 
 	insecure := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // self-signed test certificate
 	h1 := &http.Transport{TLSClientConfig: insecure.Clone()}
