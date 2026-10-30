@@ -46,7 +46,8 @@ go get github.com/erizeta/qilat
 
 ## Quick start
 
-qilat currently serves **HTTP/1.1** (plain and TLS). HTTP/2 and HTTP/3 follow on the [roadmap](#roadmap).
+qilat currently serves **HTTP/1.1** and **HTTP/2** (over TLS, and cleartext h2c). HTTP/3 follows on the
+[roadmap](#roadmap).
 
 ```go
 package main
@@ -160,6 +161,53 @@ curl -i -X POST localhost:8080/users/42  # 405 Method Not Allowed, Allow: GET, H
 One deliberate difference from net/http: escapes such as `%2F` and `%2E` are never treated as `/` or `.`,
 even in paths that also contain characters net/http re-escapes (where it would decode them before routing).
 
+### HTTP/2
+
+HTTP/2 needs no extra code. `ListenAndServeTLS` offers `h2` through ALPN and falls back to HTTP/1.1, and the same
+handlers serve both. Set `H2C: true` to also accept cleartext HTTP/2 (prior knowledge) on a plain listener:
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	h := qilat.HandlerFunc(func(w qilat.ResponseWriter, r *qilat.Request) {
+		_, _ = w.WriteString("hello over " + r.Proto() + "\n")
+		// Trailers are sent after the body, as gRPC does with grpc-status.
+		w.(qilat.TrailerSetter).Trailer().Set("X-Checksum", "abc123")
+	})
+	srv := &qilat.Server{Handler: h, H2C: true}
+	log.Fatal(srv.ListenAndServe(":8080"))
+}
+```
+
+```sh
+curl --http2-prior-knowledge localhost:8080   # hello over HTTP/2.0
+curl localhost:8080                           # hello over HTTP/1.1 (same port)
+```
+
+[`examples/http2`](examples/http2/main.go) serves HTTPS with a generated development certificate and h2c side by
+side: `go run ./examples/http2`, then `curl -k --http2 https://localhost:8443`.
+
+- Passes the [h2spec](https://github.com/summerwind/h2spec) conformance suite (147/147 in strict mode over TLS),
+  run in CI.
+- Request contexts are canceled when the client resets the stream; `Shutdown` sends GOAWAY and lets running
+  streams finish.
+- Flow control follows how fast handlers read request bodies, so a slow handler slows its client down instead of
+  buffering without bound.
+- Responses are scheduled by RFC 9218 priority (`priority` header and `PRIORITY_UPDATE`).
+- Protections against Rapid Reset (CVE-2023-44487), CONTINUATION floods, and control-frame floods are always on.
+- `Server.HTTP2` tunes limits (`MaxConcurrentStreams`, receive buffers, frame size); zero values are safe defaults.
+  `DisableHTTP2` serves HTTP/1.1 only.
+
+Trailers work on HTTP/1.1 too, in a chunked body. They are dropped only when the handler sets `Content-Length`
+itself, or for HTTP/1.0 clients.
+
 ### Request lifetime
 
 Like fasthttp, qilat reuses requests between clients. A `*Request`, its `Header`, and every `[]byte` it returns
@@ -169,8 +217,8 @@ canceled when the client disconnects or the handler returns.
 
 ## Planned API
 
-The snippet below shows the intended shape of HTTP/2 and HTTP/3 support. **It does not work yet**: today
-`ListenAndServeTLS` serves HTTP/1.1 only.
+The snippet below shows the intended shape of HTTP/3 support. **It does not work yet**: today
+`ListenAndServeTLS` serves HTTP/1.1 and HTTP/2 over TCP only.
 
 ```go
 srv := &qilat.Server{Handler: mux}
@@ -186,7 +234,7 @@ log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
 | M1 | Core types: `Header`, `URI`, `Request`, `ResponseWriter`, context, pooling | ✅ Done |
 | M2 | HTTP/1.1 server, graceful shutdown | ✅ Done |
 | M3 | `ServeMux` with Go 1.22 patterns | ✅ Done |
-| M4 | HTTP/2 server | Planned |
+| M4 | HTTP/2 server | ✅ Done |
 | M5 | HTTP/3 server, combined H1/H2/H3 server | Planned |
 | M6 | net/http adapters, `FileServer`, compression | Planned |
 | M7 | Client and Transport (H1/H2/H3) | Planned |

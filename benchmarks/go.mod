@@ -4,6 +4,8 @@ go 1.26.0
 
 require github.com/valyala/fasthttp v1.77.0
 
+require golang.org/x/net v0.62.0 // indirect
+
 require (
 	github.com/erizeta/qilat v0.0.0-00010101000000-000000000000
 	github.com/klauspost/compress v1.20.3 // indirect

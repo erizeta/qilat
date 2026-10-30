@@ -40,6 +40,44 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## M4: HTTP/2 server
+
+Same machine and Go version as M2. Both servers use their default settings; the handler returns 13 bytes.
+
+### Out-of-process load: h2load, cleartext HTTP/2, requests per second (higher is better)
+
+`go run ./cmd/h2loadserver`, then `h2load -n 1000000 <flags> http://127.0.0.1:19001/` (net/http) or `:19002`
+(qilat). Medians of 3 runs; raw output in [`results/m4-h2load.txt`](results/m4-h2load.txt).
+
+| Load | net/http | qilat |
+|---|---|---|
+| 8 connections × 100 concurrent streams (`-c 8 -m 100 -t 4`) | 362k | **895k** (2.5×) |
+| 1 connection × 100 concurrent streams (`-c 1 -m 100 -t 1`) | 110k | **371k** (3.4×) |
+
+Bytes on the wire are the same for both: qilat's HPACK encoder indexes repeated response fields like net/http's,
+so headers cost ~4 bytes per response once the dynamic table is warm.
+
+### In-process: `BenchmarkH2C`, net/http client, time per request
+
+Medians over 5 runs, raw output in [`results/m4-h2c.txt`](results/m4-h2c.txt). The net/http client is most of the
+cost and most of the allocations here, so the gap is smaller than with h2load.
+
+| Scenario | net/http | qilat | net/http allocs | qilat allocs |
+|---|---|---|---|---|
+| plaintext | 12.2 µs | **8.6 µs** | 86 | 53 |
+| json-1kb | 15.2 µs | **10.8 µs** | 89 | 57 |
+| headers-20 | 22.2 µs | **14.0 µs** | 169 | 106 |
+| upload-64kb | 62.3 µs | **30.0 µs** | 132 | 73 |
+
+### Observations
+
+- qilat writes frames directly from handler goroutines under a priority-ordered write lock instead of handing
+  every frame to a connection goroutine, and the last writer in line flushes for everyone. Most of the gain on
+  a single connection comes from that.
+- Per request the HTTP/2 server allocates the stream, its handler goroutine, and HPACK strings for request
+  fields that are not in the client's dynamic table; responses are encoded without allocating.
+- Conformance: h2spec 147/147 in strict mode over TLS (run in CI by `TestH2Spec`).
+
 ## M3: ServeMux dispatch
 
 - `BenchmarkServeMux` in the root package (not this module): the same 10 patterns are registered in

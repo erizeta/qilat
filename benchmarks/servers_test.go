@@ -30,6 +30,7 @@ var h1Servers = []serverImpl{
 
 var h2Servers = []serverImpl{
 	{name: "nethttp", start: startNetHTTP(true)},
+	{name: "qilat", start: startQilatH2C},
 }
 
 func listen(tb testing.TB) net.Listener {
@@ -166,9 +167,18 @@ func qilatHandler(w qilat.ResponseWriter, r *qilat.Request) {
 }
 
 func startQilat(tb testing.TB, ln net.Listener) func() {
+	return serveQilat(tb, ln, false)
+}
+
+func startQilatH2C(tb testing.TB, ln net.Listener) func() {
+	return serveQilat(tb, ln, true)
+}
+
+func serveQilat(tb testing.TB, ln net.Listener, h2c bool) func() {
 	srv := &qilat.Server{
 		Handler:  qilat.HandlerFunc(qilatHandler),
 		ErrorLog: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		H2C:      h2c,
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()

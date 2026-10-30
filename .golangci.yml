@@ -17,6 +17,11 @@ linters:
         linters:
           - revive
         text: unused-parameter
+      # HTTP/2 framing and HPACK pack integers into bytes on purpose; the values are range-checked first.
+      - path: internal/h2/
+        linters:
+          - gosec
+        text: G115
 
 formatters:
   enable:

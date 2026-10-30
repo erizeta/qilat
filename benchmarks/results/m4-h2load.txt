@@ -1,0 +1,14 @@
+# h2load (nghttp2 1.70.0), 1,000,000 requests to GET / ("Hello, World!"), cleartext HTTP/2 prior knowledge.
+# Server: go run ./cmd/h2loadserver (net/http on 19001, qilat on 19002). Apple M5, macOS 26.4, Go 1.27.3.
+-c 8 -m 100 -t 4 port=19001 finished in 2.76s, 362467.37 req/s, 12.10MB/s
+-c 8 -m 100 -t 4 port=19001 finished in 2.65s, 376877.79 req/s, 12.58MB/s
+-c 8 -m 100 -t 4 port=19001 finished in 2.78s, 359883.76 req/s, 12.01MB/s
+-c 8 -m 100 -t 4 port=19002 finished in 1.07s, 937247.53 req/s, 31.28MB/s
+-c 8 -m 100 -t 4 port=19002 finished in 1.12s, 894999.55 req/s, 29.87MB/s
+-c 8 -m 100 -t 4 port=19002 finished in 1.12s, 889867.35 req/s, 29.70MB/s
+-c 1 -m 100 -t 1 port=19001 finished in 9.06s, 110375.50 req/s, 3.68MB/s
+-c 1 -m 100 -t 1 port=19001 finished in 10.22s, 97892.66 req/s, 3.27MB/s
+-c 1 -m 100 -t 1 port=19001 finished in 7.93s, 126083.56 req/s, 4.21MB/s
+-c 1 -m 100 -t 1 port=19002 finished in 2.60s, 383914.15 req/s, 12.81MB/s
+-c 1 -m 100 -t 1 port=19002 finished in 2.70s, 370501.97 req/s, 12.37MB/s
+-c 1 -m 100 -t 1 port=19002 finished in 2.98s, 335018.03 req/s, 11.18MB/s

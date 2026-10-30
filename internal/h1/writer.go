@@ -19,6 +19,7 @@ var (
 	_ exchange.ResponseSink      = (*sink)(nil)
 	_ exchange.InformationalSink = (*sink)(nil)
 	_ exchange.Hijacker          = (*sink)(nil)
+	_ exchange.TrailerSink       = (*sink)(nil)
 )
 
 func (s *sink) WriteHeader(status int, h exchange.HeaderList, contentLength int64) error {
@@ -100,6 +101,32 @@ func (s *sink) Finish() error {
 			return err
 		}
 	}
+	return s.flushAfterResponse()
+}
+
+// FinishTrailer ends a chunked body with trailer fields. Other bodies cannot carry trailers, so they are dropped.
+func (s *sink) FinishTrailer(trailer exchange.HeaderList) error {
+	c := s.c
+	if !c.chunkedResp {
+		return s.Finish()
+	}
+	_, _ = c.bw.WriteString("0\r\n")
+	for i := range trailer.Len() {
+		name, value := trailer.At(i)
+		switch string(name) {
+		case "connection", "transfer-encoding", "content-length", "host", "te", "trailer", "keep-alive", "upgrade":
+			continue
+		}
+		writeField(c.bw, name, value)
+	}
+	if _, err := c.bw.WriteString("\r\n"); err != nil {
+		return err
+	}
+	return s.flushAfterResponse()
+}
+
+func (s *sink) flushAfterResponse() error {
+	c := s.c
 	// With pipelined requests already buffered, keep batching responses; the conn loop flushes before blocking.
 	if c.respKeepAlive && c.br.Buffered() > 0 {
 		return nil

@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/erizeta/qilat/internal/exchange"
 	"github.com/erizeta/qilat/internal/h1"
+	"github.com/erizeta/qilat/internal/h2"
 )
 
 // Default limits used when the corresponding Server field is zero.
@@ -49,6 +51,14 @@ type Server struct {
 	// MaxConcurrentConns limits open connections; Accept waits while the limit is reached. Zero means no limit.
 	MaxConcurrentConns int
 
+	// HTTP2 configures HTTP/2, which TLS connections negotiate through ALPN unless DisableHTTP2 is set.
+	HTTP2 HTTP2Config
+	// H2C serves cleartext HTTP/2 to clients that start with the HTTP/2 preface (prior knowledge), on the
+	// same listener as HTTP/1.1. The deprecated HTTP/1.1 Upgrade to h2c is not supported.
+	H2C bool
+	// DisableHTTP2 serves HTTP/1.1 only, even if TLSConfig.NextProtos lists "h2".
+	DisableHTTP2 bool
+
 	// ReduceMemoryUsage returns read buffers to a pool while connections are idle, costing one extra read per request.
 	ReduceMemoryUsage bool
 	// DebugPoison makes handlers that use a request or ResponseWriter after ServeHTTP returns panic. It disables pooling.
@@ -61,12 +71,13 @@ type Server struct {
 
 	mu           sync.Mutex
 	listeners    map[net.Listener]struct{}
-	conns        map[*h1.Conn]struct{}
+	conns        map[serverConn]struct{}
 	cancels      []context.CancelFunc
 	shuttingDown atomic.Bool
 }
 
-// ListenAndServe listens on the TCP address addr and serves HTTP/1.1. An empty addr means ":http".
+// ListenAndServe listens on the TCP address addr and serves HTTP/1.1, and cleartext HTTP/2 if H2C is set.
+// An empty addr means ":http".
 func (s *Server) ListenAndServe(addr string) error {
 	if s.shuttingDown.Load() {
 		return ErrServerClosed
@@ -81,7 +92,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	return s.Serve(ln)
 }
 
-// ListenAndServeTLS listens on addr and serves HTTPS. An empty addr means ":https". The certificate files
+// ListenAndServeTLS listens on addr and serves HTTPS: HTTP/2 or HTTP/1.1, chosen through ALPN. An empty addr means ":https". The certificate files
 // may be empty if TLSConfig already holds certificates.
 func (s *Server) ListenAndServeTLS(addr, certFile, keyFile string) error {
 	if s.shuttingDown.Load() {
@@ -107,6 +118,9 @@ func (s *Server) ServeTLS(ln net.Listener, certFile, keyFile string) error {
 	}
 	if len(config.NextProtos) == 0 {
 		config.NextProtos = []string{"http/1.1"}
+	}
+	if !s.DisableHTTP2 && !slices.Contains(config.NextProtos, "h2") {
+		config.NextProtos = append([]string{"h2"}, config.NextProtos...)
 	}
 	if certFile != "" || keyFile != "" || (len(config.Certificates) == 0 && config.GetCertificate == nil) {
 		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -144,7 +158,12 @@ func (s *Server) Serve(ln net.Listener) error {
 	s.mu.Unlock()
 
 	xcfg := &exchangeConfig{handler: s.Handler, baseCtx: ctx, poison: s.DebugPoison, logger: s.logger()}
-	cfg := s.h1Config(xcfg)
+	maxHeader, maxBody := s.limits()
+	cfg := s.h1Config(xcfg, maxHeader, maxBody)
+	var h2cfg *h2.Config
+	if !s.DisableHTTP2 {
+		h2cfg = s.h2Config(xcfg, maxHeader, maxBody)
+	}
 
 	var sem chan struct{}
 	if s.MaxConcurrentConns > 0 {
@@ -173,8 +192,8 @@ func (s *Server) Serve(ln net.Listener) error {
 			continue
 		}
 		backoff = 0
-		c := h1.NewConn(nc, cfg)
-		if !s.trackConn(c) {
+		pending := handshakingConn{nc}
+		if !s.trackConn(pending) {
 			_ = nc.Close()
 			if sem != nil {
 				<-sem
@@ -183,13 +202,68 @@ func (s *Server) Serve(ln net.Listener) error {
 		}
 		go func() {
 			defer func() {
-				s.untrackConn(c)
 				if sem != nil {
 					<-sem
 				}
 			}()
-			c.Serve()
+			s.serveConn(pending, cfg, h2cfg)
 		}()
+	}
+}
+
+// serveConn picks the protocol for a new connection and serves it. While the protocol is unknown
+// (TLS handshake, h2c sniffing) the connection is tracked as busy, as an HTTP/1.1 connection reading
+// its first request would be.
+func (s *Server) serveConn(raw handshakingConn, cfg *h1.Config, h2cfg *h2.Config) {
+	nc := raw.nc
+	var c serverConn
+	defer func() {
+		if c == nil {
+			s.untrackConn(raw)
+			_ = nc.Close()
+		} else {
+			s.untrackConn(c)
+		}
+	}()
+	switch tc, isTLS := nc.(*tls.Conn); {
+	case isTLS && h2cfg != nil:
+		if d := cfg.ReadHeaderTimeout; d > 0 {
+			_ = tc.SetDeadline(time.Now().Add(d))
+		}
+		if err := tc.Handshake(); err != nil {
+			s.logger().Debug("qilat: TLS handshake failed", "remote", nc.RemoteAddr(), "error", err)
+			return
+		}
+		_ = tc.SetDeadline(time.Time{})
+		if st := tc.ConnectionState(); st.NegotiatedProtocol == "h2" {
+			hc := h2.NewConn(nc, nil, &st, h2cfg)
+			c = hc
+			s.serveProto(raw, hc, hc.Serve)
+			return
+		}
+	case !isTLS && h2cfg != nil && s.H2C:
+		prefix, isH2, err := sniffH2C(nc, cfg.ReadHeaderTimeout)
+		if err != nil && len(prefix) == 0 {
+			return
+		}
+		nc = &prefixConn{Conn: nc, prefix: prefix}
+		if isH2 {
+			hc := h2.NewConn(nc, nil, nil, h2cfg)
+			c = hc
+			s.serveProto(raw, hc, hc.Serve)
+			return
+		}
+	}
+	hc := h1.NewConn(nc, cfg)
+	c = hc
+	s.serveProto(raw, hc, hc.Serve)
+}
+
+func (s *Server) serveProto(raw handshakingConn, c serverConn, serve func()) {
+	if s.replaceConn(raw, c) {
+		serve()
+	} else {
+		c.Close()
 	}
 }
 
@@ -230,21 +304,26 @@ func (s *Server) Close() error {
 	return err
 }
 
-func (s *Server) h1Config(xcfg *exchangeConfig) *h1.Config {
-	maxHeader := s.MaxHeaderBytes
+// limits resolves the header and body limits shared by every protocol.
+func (s *Server) limits() (maxHeader int, maxBody int64) {
+	maxHeader = s.MaxHeaderBytes
 	switch {
 	case maxHeader == 0:
 		maxHeader = DefaultMaxHeaderBytes
 	case maxHeader < 0:
 		maxHeader = math.MaxInt
 	}
-	maxBody := s.MaxRequestBodySize
+	maxBody = s.MaxRequestBodySize
 	switch {
 	case maxBody == 0:
 		maxBody = DefaultMaxRequestBodySize
 	case maxBody < 0:
 		maxBody = -1
 	}
+	return maxHeader, maxBody
+}
+
+func (s *Server) h1Config(xcfg *exchangeConfig, maxHeader int, maxBody int64) *h1.Config {
 	return &h1.Config{
 		Acquire:            func() exchange.Exchange { return acquireExchange(xcfg) },
 		ReadHeaderTimeout:  timeoutOr(s.ReadHeaderTimeout, DefaultReadHeaderTimeout),
@@ -309,20 +388,45 @@ func (s *Server) closeListeners() error {
 	return errors.Join(errs...)
 }
 
-func (s *Server) trackConn(c *h1.Conn) bool {
+// serverConn is a connection the server can close on Shutdown or Close.
+type serverConn interface {
+	CloseIfIdle() bool
+	Close()
+}
+
+// handshakingConn is a connection whose protocol is not known yet.
+type handshakingConn struct{ nc net.Conn }
+
+func (handshakingConn) CloseIfIdle() bool { return false }
+func (c handshakingConn) Close()          { _ = c.nc.Close() }
+
+func (s *Server) trackConn(c serverConn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.shuttingDown.Load() {
 		return false
 	}
 	if s.conns == nil {
-		s.conns = make(map[*h1.Conn]struct{})
+		s.conns = make(map[serverConn]struct{})
 	}
 	s.conns[c] = struct{}{}
 	return true
 }
 
-func (s *Server) untrackConn(c *h1.Conn) {
+// replaceConn swaps a connection for its protocol implementation. It reports false if the server
+// started shutting down in between, in which case the caller must not serve it.
+func (s *Server) replaceConn(old, c serverConn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.conns, old)
+	if s.shuttingDown.Load() {
+		return false
+	}
+	s.conns[c] = struct{}{}
+	return true
+}
+
+func (s *Server) untrackConn(c serverConn) {
 	s.mu.Lock()
 	delete(s.conns, c)
 	s.mu.Unlock()

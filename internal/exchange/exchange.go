@@ -70,3 +70,16 @@ type InformationalSink interface {
 type Hijacker interface {
 	Hijack() (net.Conn, *bufio.ReadWriter, error)
 }
+
+// TrailerSink is implemented by sinks that can send trailer fields after the body. The core calls
+// FinishTrailer instead of Finish when the handler set trailers.
+type TrailerSink interface {
+	FinishTrailer(trailer HeaderList) error
+}
+
+// CompleteSink is implemented by sinks that can send a fully buffered response in one call, so HTTP/2 and
+// HTTP/3 can end the stream on the last frame instead of sending an extra empty one. The core uses it
+// instead of WriteHeader, Write, and Finish when the whole body fits in its buffer. trailer may be empty.
+type CompleteSink interface {
+	WriteComplete(status int, header HeaderList, contentLength int64, body []byte, trailer HeaderList) error
+}

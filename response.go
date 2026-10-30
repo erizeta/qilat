@@ -31,6 +31,14 @@ type Hijacker interface {
 	Hijack() (net.Conn, *bufio.ReadWriter, error)
 }
 
+// TrailerSetter lets a handler send trailer fields after the body. Every qilat ResponseWriter implements it.
+// Fields set on the returned Header before ServeHTTP returns are sent as trailers. HTTP/2 always delivers them.
+// HTTP/1.1 sends them in a chunked body, so they are dropped when the handler sets Content-Length itself or
+// the client speaks HTTP/1.0.
+type TrailerSetter interface {
+	Trailer() *Header
+}
+
 var (
 	// ErrNotSupported is returned when the protocol does not support a feature, such as Hijack on HTTP/2.
 	ErrNotSupported = errors.New("qilat: feature not supported")
@@ -49,6 +57,7 @@ const responseBufferSize = 4 << 10
 type response struct {
 	sink        exchange.ResponseSink
 	header      Header
+	trailer     Header
 	status      int
 	wroteHeader bool
 	sentHeader  bool
@@ -166,6 +175,12 @@ func (w *response) Flush() error {
 	return nil
 }
 
+// Trailer returns the trailer fields to send after the body. See [TrailerSetter].
+func (w *response) Trailer() *Header {
+	w.live()
+	return &w.trailer
+}
+
 // Hijack hands the connection to the caller. The ResponseWriter must not be used afterwards.
 func (w *response) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	w.live()
@@ -194,37 +209,73 @@ func (w *response) finish() error {
 	if w.err != nil {
 		return w.err
 	}
+	short := w.declared >= 0 && w.written < w.declared && !w.head && !w.noBody
+	hasTrailer := w.trailer.Len() > 0
 	if !w.sentHeader {
 		cl := w.declared
 		if cl < 0 && !w.noBody {
 			cl = w.written
 		}
+		if cs, ok := w.sink.(exchange.CompleteSink); ok && !short {
+			return w.sendComplete(cs, cl)
+		}
+		// HTTP/1.1 can carry trailers only in a chunked body.
+		if hasTrailer && w.declared < 0 {
+			cl = -1
+		}
 		if err := w.sendHeader(cl); err != nil {
 			return err
 		}
 	}
-	if w.declared >= 0 && w.written < w.declared && !w.head && !w.noBody {
+	if short {
 		w.err = ErrContentLength
 		return w.err
 	}
-	if err := w.sink.Finish(); err != nil {
-		w.err = err
-		return err
+	var err error
+	if ts, ok := w.sink.(exchange.TrailerSink); ok && hasTrailer {
+		err = ts.FinishTrailer((*headerList)(&w.trailer))
+	} else {
+		err = w.sink.Finish()
 	}
-	return nil
+	if err != nil {
+		w.err = err
+	}
+	return err
+}
+
+// sendComplete hands a fully buffered response to the protocol in one call.
+func (w *response) sendComplete(cs exchange.CompleteSink, contentLength int64) error {
+	w.sentHeader = true
+	w.setContentLength(contentLength)
+	var trailer exchange.HeaderList
+	if w.trailer.Len() > 0 {
+		trailer = (*headerList)(&w.trailer)
+	}
+	err := cs.WriteComplete(w.status, (*headerList)(&w.header), contentLength, w.buf, trailer)
+	w.buf = w.buf[:0]
+	if err != nil {
+		w.err = err
+	}
+	return err
+}
+
+// setContentLength rewrites Content-Length to match the framing the protocol will use, since the header
+// is sent lazily.
+func (w *response) setContentLength(contentLength int64) {
+	if w.noBody {
+		return
+	}
+	if contentLength >= 0 {
+		var b [20]byte
+		w.header.SetBytes("content-length", strconv.AppendInt(b[:0], contentLength, 10))
+	} else {
+		w.header.Del("content-length")
+	}
 }
 
 func (w *response) sendHeader(contentLength int64) error {
 	w.sentHeader = true
-	// The header is sent lazily, so rewrite Content-Length to match the framing the protocol will use.
-	if !w.noBody {
-		if contentLength >= 0 {
-			var b [20]byte
-			w.header.SetBytes("content-length", strconv.AppendInt(b[:0], contentLength, 10))
-		} else {
-			w.header.Del("content-length")
-		}
-	}
+	w.setContentLength(contentLength)
 	if err := w.sink.WriteHeader(w.status, (*headerList)(&w.header), contentLength); err != nil {
 		w.err = err
 		return err
@@ -249,11 +300,13 @@ func (w *response) live() {
 func (w *response) reset() {
 	buf := w.buf[:0]
 	w.header.Reset()
-	header := w.header
-	*w = response{header: header, buf: buf}
+	w.trailer.Reset()
+	header, trailer := w.header, w.trailer
+	*w = response{header: header, trailer: trailer, buf: buf}
 }
 
 func (w *response) poison() {
 	w.dead = true
 	w.header.dead = true
+	w.trailer.dead = true
 }
