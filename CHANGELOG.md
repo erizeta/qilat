@@ -7,7 +7,9 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
-The first release, planned as v0.1.0. Minimum Go version: 1.26.
+## [0.1.0] - 2026-10-31
+
+The first release. Minimum Go version: 1.26.
 
 ### Added
 
@@ -67,4 +69,5 @@ Found by the pre-release security and code reviews and fixed before the first re
 - `Transport.CloseIdleConnections` racing with the idle timer could panic, and stopped idle reaping for
   HTTP/2 and HTTP/3 connections that were busy at the time.
 
-[Unreleased]: https://github.com/erizeta/qilat/commits/main
+[Unreleased]: https://github.com/erizeta/qilat/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/erizeta/qilat/releases/tag/v0.1.0
