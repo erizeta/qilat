@@ -152,3 +152,57 @@ func TestClientDisableHTTP2(t *testing.T) {
 		t.Fatalf("%s %q", resp.Proto(), body)
 	}
 }
+
+func TestClientH2C(t *testing.T) {
+	checkGoroutines(t)
+	ts := startH2C(t, func(w ResponseWriter, r *Request) {
+		w.Header().Set("X-Proto", r.Proto())
+		_, _ = io.Copy(w, r.Body)
+	})
+	c, _ := newTestClient(t, func(tr *Transport) { tr.H2C = true })
+	resp, body := do(t, c, "POST", ts.url("/echo"), "over h2c")
+	if resp.Proto() != "HTTP/2.0" || resp.Header.Get("X-Proto") != "HTTP/2.0" || body != "over h2c" {
+		t.Fatalf("qilat h2c: %s %q %v", resp.Proto(), body, fields(resp.Header))
+	}
+
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Millisecond)
+		_, _ = io.WriteString(w, r.Proto)
+	}))
+	srv.Config.Protocols = new(http.Protocols)
+	srv.Config.Protocols.SetHTTP1(true)
+	srv.Config.Protocols.SetUnencryptedHTTP2(true)
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp := AcquireResponse()
+			defer ReleaseResponse(resp)
+			if err := c.Get(srv.URL, resp); err != nil {
+				t.Error(err)
+				return
+			}
+			if b, _ := resp.ReadBody(); string(b) != "HTTP/2.0" {
+				t.Errorf("net/http h2c: %q", b)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := conns.Load(); n != 1 {
+		t.Fatalf("%d connections for h2c requests", n)
+	}
+
+	plain, _ := newTestClient(t)
+	if resp, _ := do(t, plain, "GET", srv.URL, ""); resp.Proto() != "HTTP/1.1" {
+		t.Fatalf("without H2C: %s", resp.Proto())
+	}
+}

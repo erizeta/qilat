@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -45,16 +46,36 @@ type ClientConn struct {
 	lastActive time.Time
 }
 
+// DialFunc opens a connection like net.Dialer.DialContext. HTTP/3 calls it with network "udp".
+type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
+
 // Dial opens an HTTP/3 connection to addr. tlsConf is cloned and restricted to TLS 1.3 with ALPN "h3".
-func Dial(ctx context.Context, addr string, tlsConf *tls.Config, cfg *ClientConfig, onClose func(*ClientConn)) (*ClientConn, error) {
+// A nil dial uses a UDP socket of quic-go's own.
+func Dial(ctx context.Context, addr string, tlsConf *tls.Config, cfg *ClientConfig, dial DialFunc,
+	onClose func(*ClientConn)) (*ClientConn, error) {
 	tc := tlsConf.Clone()
 	tc.MinVersion = tls.VersionTLS13
 	tc.NextProtos = []string{"h3"}
-	qc, err := quic.DialAddr(ctx, addr, tc, &quic.Config{
+	qconf := &quic.Config{
 		MaxIdleTimeout:        cfg.IdleTimeout,
 		MaxIncomingUniStreams: 16, // control and QPACK streams, plus room for unknown types
 		MaxIncomingStreams:    -1, // servers do not open request streams; push is not enabled
-	})
+	}
+	var qc *quic.Conn
+	var pc net.PacketConn
+	var err error
+	if dial == nil {
+		qc, err = quic.DialAddr(ctx, addr, tc, qconf)
+	} else {
+		var nc net.Conn
+		if nc, err = dial(ctx, "udp", addr); err != nil {
+			return nil, err
+		}
+		pc = connectedPacketConn{nc}
+		if qc, err = quic.Dial(ctx, pc, nc.RemoteAddr(), tc, qconf); err != nil {
+			_ = pc.Close()
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -69,10 +90,24 @@ func Dial(ctx context.Context, addr string, tlsConf *tls.Config, cfg *ClientConf
 		c.mu.Lock()
 		c.closed = true
 		c.mu.Unlock()
+		if pc != nil {
+			_ = pc.Close() // quic-go leaves a socket it did not create open
+		}
 		c.onClose(c)
 	}()
 	return c, nil
 }
+
+// connectedPacketConn lets quic-go use a connection from a DialFunc, which is already connected to the
+// server. quic-go then uses plain reads and writes instead of batched UDP I/O.
+type connectedPacketConn struct{ net.Conn }
+
+func (c connectedPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	n, err := c.Read(p)
+	return n, c.RemoteAddr(), err
+}
+
+func (c connectedPacketConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c.Write(p) }
 
 func (c *ClientConn) openControl() error {
 	ctrl, err := c.qc.OpenUniStream()

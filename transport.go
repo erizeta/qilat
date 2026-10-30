@@ -39,7 +39,8 @@ var DefaultTransport = &Transport{}
 //
 // Like the [Server], zero fields mean safe defaults rather than "unlimited".
 type Transport struct {
-	// DialContext opens TCP connections; nil means a net.Dialer.
+	// DialContext opens connections; nil means a net.Dialer. It is called with network "tcp", and with "udp"
+	// for HTTP/3, where returning an error makes the request fall back to TCP.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 	// DialTimeout limits connecting; zero means DefaultDialTimeout.
 	DialTimeout time.Duration
@@ -67,10 +68,12 @@ type Transport struct {
 	MaxResponseBodySize int64
 	// DisableHTTP2 keeps HTTPS requests on HTTP/1.1.
 	DisableHTTP2 bool
+	// H2C sends plain http:// requests over HTTP/2 with prior knowledge (RFC 9113 section 3.3), for servers
+	// known to accept it, such as a qilat Server with H2C set. It is not used through a proxy.
+	H2C bool
 	// EnableHTTP3 sends HTTPS requests over HTTP/3 to hosts that advertised it with Alt-Svc in an earlier
 	// response. When QUIC cannot connect within HTTP3DialTimeout, as when UDP is blocked, the request falls
-	// back to TCP and the host is reached over TCP for a while. HTTP/3 is not used through a proxy, and
-	// DialContext does not apply to it.
+	// back to TCP and the host is reached over TCP for a while. HTTP/3 is not used through a proxy.
 	EnableHTTP3 bool
 	// HTTP3DialTimeout limits the QUIC handshake before falling back to TCP; zero means DefaultHTTP3DialTimeout.
 	HTTP3DialTimeout time.Duration
@@ -214,6 +217,8 @@ func (t *Transport) hostConns(scheme string, authority []byte, proxy *url.URL) *
 		t.hosts = make(map[connKey]*hostConns)
 	}
 	hc := &hostConns{t: t, key: key, proxy: proxy}
+	// With prior knowledge the first connection is HTTP/2, so concurrent first requests share it.
+	hc.knownH2 = t.H2C && scheme == "http" && proxy == nil
 	t.hosts[key] = hc
 	return hc
 }
@@ -379,7 +384,7 @@ func (hc *hostConns) getH3(ctx context.Context, addr string) (*h3.ClientConn, er
 
 		t := hc.t
 		dctx, cancel := context.WithTimeout(ctx, orDefault(t.HTTP3DialTimeout, DefaultHTTP3DialTimeout))
-		c, err := h3.Dial(dctx, addr, t.tlsConfig(hc.key.authority), &t.h3cfg, hc.dropH3)
+		c, err := h3.Dial(dctx, addr, t.tlsConfig(hc.key.authority), &t.h3cfg, t.DialContext, hc.dropH3)
 		cancel()
 		hc.mu.Lock()
 		hc.h3Dial = nil
@@ -526,7 +531,9 @@ func (hc *hostConns) dialConn(ctx context.Context) (*h1.ClientConn, *h2.ClientCo
 		hc.connGone()
 		return nil, nil, err
 	}
-	if tc, ok := nc.(*tls.Conn); ok && tc.ConnectionState().NegotiatedProtocol == "h2" {
+	tc, isTLS := nc.(*tls.Conn)
+	h2c := !isTLS && hc.t.H2C && hc.proxy == nil
+	if h2c || isTLS && tc.ConnectionState().NegotiatedProtocol == "h2" {
 		c, err := h2.NewClientConn(nc, &hc.t.h2cfg, hc.removeH2)
 		hc.connGone() // HTTP/2 connections do not count toward MaxConnsPerHost
 		if err != nil {

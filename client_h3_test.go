@@ -208,3 +208,46 @@ func TestParseAltSvc(t *testing.T) {
 		}
 	}
 }
+
+func TestClientH3UsesDialContext(t *testing.T) {
+	checkGoroutines(t)
+	addr := startTCPAndQUIC(t, func(w ResponseWriter, r *Request) { _, _ = w.WriteString(r.Proto()) })
+	var mu sync.Mutex
+	var networks []string
+	var d net.Dialer
+	c, _ := insecureTransport(t, func(tr *Transport) {
+		tr.EnableHTTP3 = true
+		tr.DialContext = func(ctx context.Context, network, a string) (net.Conn, error) {
+			mu.Lock()
+			networks = append(networks, network)
+			mu.Unlock()
+			return d.DialContext(ctx, network, a)
+		}
+	})
+	for _, want := range []string{"HTTP/2.0", "HTTP/3.0", "HTTP/3.0"} {
+		if _, body := do(t, c, "GET", "https://"+addr+"/", ""); body != want {
+			t.Fatalf("got %s, want %s", body, want)
+		}
+	}
+	mu.Lock()
+	if got := strings.Join(networks, ","); got != "tcp,udp" {
+		t.Fatalf("DialContext called with %s", got)
+	}
+	mu.Unlock()
+
+	// A dialer that refuses UDP keeps requests on TCP.
+	refuse, _ := insecureTransport(t, func(tr *Transport) {
+		tr.EnableHTTP3 = true
+		tr.DialContext = func(ctx context.Context, network, a string) (net.Conn, error) {
+			if network == "udp" {
+				return nil, errors.New("udp not allowed")
+			}
+			return d.DialContext(ctx, network, a)
+		}
+	})
+	for range 3 {
+		if _, body := do(t, refuse, "GET", "https://"+addr+"/", ""); body != "HTTP/2.0" {
+			t.Fatalf("refused UDP: %s", body)
+		}
+	}
+}
