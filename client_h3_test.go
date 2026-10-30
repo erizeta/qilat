@@ -50,7 +50,21 @@ func startTCPAndQUIC(t *testing.T, h HandlerFunc) string {
 		_ = srv.Shutdown(ctx)
 		wg.Wait()
 	})
+	waitAltSvc(t, srv)
 	return ln.Addr().String()
+}
+
+// waitAltSvc waits until srv advertises HTTP/3, which ServeQUIC does once its listener is open. Until then,
+// TCP responses carry no Alt-Svc.
+func waitAltSvc(t *testing.T, srv *Server) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.altSvc.Load() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("ServeQUIC did not start advertising HTTP/3")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestClientH3ViaAltSvc(t *testing.T) {
