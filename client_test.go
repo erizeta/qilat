@@ -462,3 +462,31 @@ func TestClientStaleBodyReference(t *testing.T) {
 		t.Fatalf("second response %q", b)
 	}
 }
+
+// TestClientH1FullDuplexUpload uploads far more than socket buffers hold to a server that echoes as it reads.
+// Writing the whole body before reading the response would stall both sides.
+func TestClientH1FullDuplexUpload(t *testing.T) {
+	ts := startServer(t, func(w ResponseWriter, r *Request) { _, _ = io.Copy(w, r.Body) }, func(s *Server) {
+		s.MaxRequestBodySize = -1
+	})
+	tr := &Transport{}
+	defer tr.CloseIdleConnections()
+	c := &Client{Transport: tr, Timeout: 20 * time.Second}
+	body := bytes.Repeat([]byte("0123456789abcdef"), 2<<20) // 32 MiB
+	for _, length := range []int64{int64(len(body)), -1} {
+		req := AcquireRequest()
+		req.SetMethod("POST")
+		_ = req.SetRequestURI(ts.url("/echo"))
+		req.SetBody(bytes.NewReader(body), length)
+		resp := AcquireResponse()
+		if err := c.Do(req, resp); err != nil {
+			t.Fatalf("length %d: %v", length, err)
+		}
+		n, err := io.Copy(io.Discard, resp.Body)
+		if err != nil || n != int64(len(body)) {
+			t.Fatalf("length %d: echoed %d bytes, %v", length, n, err)
+		}
+		ReleaseResponse(resp)
+		ReleaseRequest(req)
+	}
+}

@@ -50,11 +50,20 @@ type ClientConn struct {
 	canceled atomic.Bool
 	scratch  [24]byte
 	copyBuf  []byte // for request bodies, allocated on first use
+
+	writing   bool          // a body writer goroutine is running
+	writeDone chan struct{} // signaled when it returns, after setting writeErr
+	writeErr  error
 }
+
+// syncBodyMax is the largest known-length body written before the response is read. Such a body fits in
+// socket buffers, so a server answering before it reads everything cannot stall it; larger ones and bodies
+// of unknown length are written while the response is read, as net/http does.
+const syncBodyMax = 64 << 10
 
 // NewClientConn wraps an established connection.
 func NewClientConn(nc net.Conn, cfg *ClientConfig, done func(c *ClientConn, reusable bool)) *ClientConn {
-	c := &ClientConn{nc: nc, cfg: cfg, done: done}
+	c := &ClientConn{nc: nc, cfg: cfg, done: done, writeDone: make(chan struct{}, 1)}
 	c.br = bufio.NewReaderSize(nc, bufferSize)
 	c.bw = bufio.NewWriterSize(nc, bufferSize)
 	c.lr.br = c.br
@@ -118,6 +127,21 @@ func (c *ClientConn) finish(reusable bool) {
 		c.stop()
 		c.stop = nil
 	}
+	if c.writing {
+		select {
+		case <-c.writeDone:
+			if c.writeErr != nil {
+				reusable = false
+			}
+		default:
+			// The response ended before the upload: the connection is mid-request, so it is closed, which
+			// also stops the writer. Waiting means the caller's body is not read after the response is released.
+			reusable = false
+			_ = c.nc.Close()
+			<-c.writeDone
+		}
+		c.writing = false
+	}
 	if c.canceled.Load() || c.broken {
 		reusable = false
 	}
@@ -162,11 +186,29 @@ func (c *ClientConn) writeRequest(req *exchange.ClientRequest) error {
 		return err
 	}
 	if req.Body != nil {
+		if chunked || req.ContentLength > syncBodyMax {
+			// The header goes out now, so the server can answer before the body is complete.
+			if err := bw.Flush(); err != nil {
+				return err
+			}
+			c.writing = true
+			go c.writeBodyAsync(req.Body, req.ContentLength, chunked)
+			return nil
+		}
 		if err := c.writeBody(req.Body, req.ContentLength, chunked); err != nil {
 			return err
 		}
 	}
 	return bw.Flush()
+}
+
+func (c *ClientConn) writeBodyAsync(body io.Reader, length int64, chunked bool) {
+	err := c.writeBody(body, length, chunked)
+	if err == nil {
+		err = c.bw.Flush()
+	}
+	c.writeErr = err
+	c.writeDone <- struct{}{}
 }
 
 func writeContentLength(bw *bufio.Writer, n int64, scratch *[24]byte) {

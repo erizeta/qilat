@@ -170,7 +170,9 @@ func (c *Conn) Serve() {
 		return
 	}
 	if string(preface[:]) != ClientPreface {
-		_ = c.writeControl(c.ctrl, func(b []byte) []byte { return appendGoAway(b, 0, ErrCodeProtocol) })
+		if c.writeControl(c.ctrl, func(b []byte) []byte { return appendGoAway(b, 0, ErrCodeProtocol) }) == nil {
+			c.lingerAfterGoAway()
+		}
 		return
 	}
 	if c.writeControl(c.ctrl, c.appendServerPreface) != nil {
@@ -210,7 +212,9 @@ func (c *Conn) handleError(err error) {
 		c.goAway, c.goAwayID = true, c.maxClientID
 		last := c.goAwayID
 		c.mu.Unlock()
-		_ = c.writeControl(c.ctrl, func(b []byte) []byte { return appendGoAway(b, last, ce.code) })
+		if c.writeControl(c.ctrl, func(b []byte) []byte { return appendGoAway(b, last, ce.code) }) == nil {
+			c.lingerAfterGoAway()
+		}
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		c.mu.Lock()
 		idle := len(c.streams) == 0 && !c.goAway
@@ -221,6 +225,33 @@ func (c *Conn) handleError(err error) {
 			_ = c.writeControl(c.ctrl, func(b []byte) []byte { return appendGoAway(b, last, ErrCodeNo) })
 		}
 	}
+}
+
+const (
+	goAwayLinger    = time.Second
+	goAwayLingerMax = 1 << 20
+)
+
+// lingerAfterGoAway keeps reading for a moment before the connection closes: closing with unread input makes
+// TCP send RST, which can destroy the GOAWAY before the client reads it.
+func (c *Conn) lingerAfterGoAway() {
+	// A flush may have been left to a writer queued behind the GOAWAY, so flush here, and stop all later
+	// writes, before the write side is closed.
+	c.sched.lock(c.ctrl)
+	if c.bw != nil && c.writeErr == nil {
+		if err := c.bw.Flush(); err != nil {
+			c.writeErr = err
+		}
+	}
+	if c.writeErr == nil {
+		c.writeErr = errConnClosed
+	}
+	if cw, ok := c.nc.(interface{ CloseWrite() error }); ok {
+		_ = cw.CloseWrite()
+	}
+	c.sched.unlock()
+	_ = c.nc.SetReadDeadline(time.Now().Add(goAwayLinger))
+	_, _ = io.Copy(io.Discard, io.LimitReader(c.br, goAwayLingerMax))
 }
 
 func (c *Conn) logDebug(msg string, err error) {
