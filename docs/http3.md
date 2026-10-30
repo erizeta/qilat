@@ -85,10 +85,10 @@ handshake, saving a round trip. The cost is that 0-RTT data can be **replayed**:
 packets can send them again, and the server cannot tell the copy from the original until the handshake ends.
 
 0-RTT is off by default. When it is on, qilat answers `425 Too Early` (RFC 8470) to requests that arrive
-before the handshake completes unless their method is idempotent: `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, or
-`DELETE`. The client then retries after the handshake. Enable it only if every handler reached by those
-methods is safe to run twice, which includes GET handlers with side effects and PUT or DELETE handlers whose
-replay at a later time would undo a change made since.
+before the handshake completes unless their method is `GET`, `HEAD`, or `OPTIONS`. The client then retries
+after the handshake. `PUT` and `DELETE` are idempotent but still refused: a replay delivered later could undo
+a change made since. Enable 0-RTT only if every `GET`, `HEAD`, and `OPTIONS` handler is safe to run twice,
+which rules out GET handlers with side effects.
 
 ## Limits
 

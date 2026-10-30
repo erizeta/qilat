@@ -159,7 +159,7 @@ func TestHTTP3ZeroRTTRejectsUnsafeRequests(t *testing.T) {
 	_ = first.CloseWithError(0, "")
 
 	pc.on.Store(true)
-	for _, tt := range []struct{ method, want string }{{"POST", "425"}, {"GET", "200"}} {
+	for _, tt := range []struct{ method, want string }{{"POST", "425"}, {"PUT", "425"}, {"DELETE", "425"}, {"GET", "200"}} {
 		conn, err := quic.DialAddrEarly(ctx, addr, tlsConf, &quic.Config{})
 		if err != nil {
 			t.Fatal(err)

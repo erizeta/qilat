@@ -32,7 +32,7 @@ type HTTP3Config struct {
 	MaxReceiveBufferPerConnection int
 	MaxReceiveBufferPerStream     int
 	// Allow0RTT accepts requests in 0-RTT data, saving a round trip for returning clients. 0-RTT data can be
-	// replayed, so requests with a method that is not idempotent are answered 425 Too Early (RFC 8470).
+	// replayed, so requests other than GET, HEAD, and OPTIONS are answered 425 Too Early (RFC 8470).
 	Allow0RTT bool
 	// AltSvcMaxAge is how long clients may remember that HTTP/3 is available (the Alt-Svc "ma" parameter).
 	AltSvcMaxAge time.Duration
