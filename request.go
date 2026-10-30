@@ -32,6 +32,18 @@ type Request struct {
 	ctx           context.Context // set by WithContext and Clone
 	st            *requestState
 	dead          bool
+
+	pattern     string
+	pat         *pattern
+	matches     []pathValue // values of pat's wildcards, in pattern order
+	otherValues []pathValue // set by SetPathValue for names pat does not have
+	match       matchScratch
+}
+
+// pathValue owns its bytes so values survive later changes to the request URI.
+type pathValue struct {
+	name  string
+	value []byte
 }
 
 // Method returns the request method, such as "GET".
@@ -123,10 +135,103 @@ func (r *Request) Clone(ctx context.Context) *Request {
 		baseCtx:       ctx,
 		ctx:           ctx,
 		st:            new(requestState),
+		pattern:       r.pattern,
+		pat:           r.pat,
+		matches:       clonePathValues(r.matches),
+		otherValues:   clonePathValues(r.otherValues),
 	}
 	c.Header = &c.header
 	r.Header.CopyTo(&c.header)
 	r.uri.CopyTo(&c.uri)
+	return c
+}
+
+// Pattern returns the [ServeMux] pattern that matched the request, or "" if none did.
+func (r *Request) Pattern() string {
+	r.live()
+	return r.pattern
+}
+
+// PathValue returns a copy of the value of the named wildcard in the [ServeMux] pattern that matched
+// the request, or a value set by [Request.SetPathValue]. It returns "" if there is no such value.
+// Like [net/http.Request.PathValue], the value is percent-decoded.
+func (r *Request) PathValue(name string) string {
+	return string(r.PeekPathValue(name))
+}
+
+// PeekPathValue is like [Request.PathValue] but returns the value without copying it, or nil if there is none.
+// The result must not be modified and is valid only until ServeHTTP returns.
+func (r *Request) PeekPathValue(name string) []byte {
+	r.live()
+	if v := findPathValue(r.matches, name); v != nil {
+		return v.value
+	}
+	if v := findPathValue(r.otherValues, name); v != nil {
+		return v.value
+	}
+	return nil
+}
+
+// SetPathValue sets the value returned by PathValue(name). value is copied and not unescaped.
+func (r *Request) SetPathValue(name, value string) {
+	r.live()
+	v := findPathValue(r.matches, name)
+	if v == nil {
+		if v = findPathValue(r.otherValues, name); v == nil {
+			r.otherValues, v = growPathValues(r.otherValues, name)
+		}
+	}
+	v.value = append(v.value[:0], value...)
+}
+
+func findPathValue(vs []pathValue, name string) *pathValue {
+	for i := range vs {
+		if vs[i].name == name {
+			return &vs[i]
+		}
+	}
+	return nil
+}
+
+// growPathValues reuses the value buffers of entries left beyond len by an earlier reset.
+func growPathValues(vs []pathValue, name string) ([]pathValue, *pathValue) {
+	if len(vs) < cap(vs) {
+		vs = vs[:len(vs)+1]
+	} else {
+		vs = append(vs, pathValue{})
+	}
+	v := &vs[len(vs)-1]
+	v.name = name
+	v.value = v.value[:0]
+	return vs, v
+}
+
+// setMatch records the ServeMux match, decoding raw wildcard values into buffers owned by r.
+func (r *Request) setMatch(patStr string, pat *pattern, raw [][]byte) {
+	r.pattern = patStr
+	r.pat = pat
+	r.matches = r.matches[:0]
+	if pat == nil {
+		return
+	}
+	for i, name := range pat.names {
+		if i >= len(raw) {
+			break
+		}
+		var v *pathValue
+		r.matches, v = growPathValues(r.matches, name)
+		v.value = appendUnescape(v.value, raw[i], false)
+	}
+}
+
+func clonePathValues(vs []pathValue) []pathValue {
+	if len(vs) == 0 {
+		return nil
+	}
+	c := make([]pathValue, len(vs))
+	for i, v := range vs {
+		c[i] = pathValue{name: v.name, value: append([]byte{}, v.value...)}
+	}
 	return c
 }
 
@@ -162,6 +267,10 @@ func (r *Request) reset() {
 	r.baseCtx = nil
 	r.ctx = nil
 	r.st.reset()
+	r.pattern = ""
+	r.pat = nil
+	r.matches = r.matches[:0]
+	r.otherValues = r.otherValues[:0]
 }
 
 func (r *Request) poison() {

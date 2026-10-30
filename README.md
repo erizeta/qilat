@@ -26,6 +26,7 @@ qilat aims for both:
 | HTTP/2 | ✅ | ❌ | ✅ native |
 | HTTP/3 (QUIC) | ❌ | ❌ | ✅ native |
 | net/http-style `Handler` / `ResponseWriter` | ✅ | ❌ | ✅ |
+| `ServeMux` with Go 1.22 patterns (`GET /users/{id}`) | ✅ | ❌ | ✅ allocation-free |
 | Per-request `context.Context` cancellation | ✅ | ❌ (shutdown only) | ✅ allocation-free |
 | Zero-allocation hot path | ❌ | ✅ | ✅ |
 | Streaming request/response bodies | ✅ | partial | ✅ |
@@ -113,6 +114,52 @@ Unlike net/http, a zero value means a safe limit, not "unlimited". Set a field t
 
 [`examples/core`](examples/core/main.go) shows them in use: `go run ./examples/core`.
 
+### Routing
+
+`qilat.ServeMux` has the same pattern syntax, precedence, and redirect behavior as `net/http.ServeMux` (Go 1.22+),
+and matching a request does not allocate:
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	mux := qilat.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", func(w qilat.ResponseWriter, r *qilat.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.WriteString(`{"id":"` + r.PathValue("id") + `"}` + "\n")
+	})
+	mux.HandleFunc("GET /files/{path...}", func(w qilat.ResponseWriter, r *qilat.Request) {
+		_, _ = w.WriteString("file: " + r.PathValue("path") + "\n")
+	})
+	log.Fatal((&qilat.Server{Handler: mux}).ListenAndServe(":8080"))
+}
+```
+
+```sh
+curl localhost:8080/users/42           # {"id":"42"}
+curl localhost:8080/files/docs/a.txt   # file: docs/a.txt
+curl -i -X POST localhost:8080/users/42  # 405 Method Not Allowed, Allow: GET, HEAD
+```
+
+- Patterns: `[METHOD ][HOST]/path`, with `{name}` for one segment, `{name...}` for the rest of the path,
+  `{$}` for an exact match, and a trailing `/` for a subtree. `GET` also matches `HEAD`.
+- The most specific pattern wins, and registering two patterns that conflict panics with a description of both.
+- Unclean paths (`/a/../b`, `//`) and subtree roots without the trailing slash are redirected with 307,
+  unmatched paths get 404, and paths that match only another method get 405 with an `Allow` header.
+- `r.PathValue(name)` returns a decoded copy that is safe to keep. `r.PeekPathValue(name)` returns the same
+  bytes without copying, valid until the handler returns. `r.Pattern()` returns the matched pattern.
+
+[`examples/routing`](examples/routing/main.go) is a small key-value API: `go run ./examples/routing`.
+
+One deliberate difference from net/http: escapes such as `%2F` and `%2E` are never treated as `/` or `.`,
+even in paths that also contain characters net/http re-escapes (where it would decode them before routing).
+
 ### Request lifetime
 
 Like fasthttp, qilat reuses requests between clients. A `*Request`, its `Header`, and every `[]byte` it returns
@@ -122,15 +169,10 @@ canceled when the client disconnects or the handler returns.
 
 ## Planned API
 
-The snippet below shows the intended shape of routing and HTTP/3 support. **It does not compile yet.**
+The snippet below shows the intended shape of HTTP/2 and HTTP/3 support. **It does not work yet**: today
+`ListenAndServeTLS` serves HTTP/1.1 only.
 
 ```go
-mux := qilat.NewServeMux()
-mux.HandleFunc("GET /users/{id}", func(w qilat.ResponseWriter, r *qilat.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"id":"` + r.PathValue("id") + `"}`))
-})
-
 srv := &qilat.Server{Handler: mux}
 // Serves HTTP/1.1 and HTTP/2 over TCP and HTTP/3 over UDP on the same port.
 log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
@@ -143,7 +185,7 @@ log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
 | M0 | Repository, CI, baseline benchmarks, dependency research | ✅ Done |
 | M1 | Core types: `Header`, `URI`, `Request`, `ResponseWriter`, context, pooling | ✅ Done |
 | M2 | HTTP/1.1 server, graceful shutdown | ✅ Done |
-| M3 | `ServeMux` with Go 1.22 patterns | Planned |
+| M3 | `ServeMux` with Go 1.22 patterns | ✅ Done |
 | M4 | HTTP/2 server | Planned |
 | M5 | HTTP/3 server, combined H1/H2/H3 server | Planned |
 | M6 | net/http adapters, `FileServer`, compression | Planned |

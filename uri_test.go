@@ -170,7 +170,9 @@ func argsString(a *Args) string {
 		if b.Len() > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(string(k) + "=" + string(v))
+		b.WriteString(string(k))
+		b.WriteString("=")
+		b.WriteString(string(v))
 	}
 	return b.String()
 }

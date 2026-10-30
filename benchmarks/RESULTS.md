@@ -40,6 +40,29 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## M3: ServeMux dispatch
+
+- `BenchmarkServeMux` in the root package (not this module): the same 10 patterns are registered in
+  `qilat.ServeMux` and `net/http.ServeMux`, and each mux dispatches a prepared request to a no-op writer, so
+  only routing is measured. Raw output in [`results/m3-servemux.txt`](results/m3-servemux.txt).
+- Same machine and Go version as M2, `-count 10`, medians.
+
+```sh
+go test -run '^$' -bench 'BenchmarkServeMux$' -benchmem -count 10 .
+```
+
+| Request | Matching pattern | net/http | qilat | net/http allocs | qilat allocs |
+|---|---|---|---|---|---|
+| `/static/app.js` | `GET /static/app.js` | 59.1 ns | **48.7 ns** | 0 | 0 |
+| `/users/42` | `GET /users/{id}` | 57.5 ns | **49.1 ns** | 1 | 0 |
+| `/users/42/posts/7` | `GET /users/{id}/posts/{post}` | 96.3 ns | **80.7 ns** | 2 | 0 |
+| `/files/a/b/c` | `GET /files/{path...}` | 148 ns | **92.1 ns** | 5 | 0 |
+| `/nope` | none (404) | 350 ns | **253 ns** | 16 | 8 |
+
+- Matching never allocates in qilat: wildcard values are decoded into buffers owned by the pooled request.
+  Calling `r.PathValue` copies the value (1 allocation); `r.PeekPathValue` does not.
+- A miss allocates in both muxes to compute the 405 `Allow` list and build the error handler.
+
 ## M2: qilat HTTP/1.1 server
 
 - Same machine and flags as the M0 baseline: Apple M5 (10 cores), macOS 26.4, Go 1.27.3, fasthttp v1.77.0,
