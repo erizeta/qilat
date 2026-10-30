@@ -412,7 +412,7 @@ adds an `Alt-Svc` header to HTTP/1.1 and HTTP/2 responses so browsers and curl s
   on TCP only.
 - `Server.HTTP3` tunes stream and flow-control limits and the Alt-Svc max age, or turns Alt-Svc off.
 - 0-RTT is off by default. With `HTTP3.Allow0RTT`, returning clients save a round trip, and early requests
-  whose method is not idempotent get `425 Too Early`, since 0-RTT data can be replayed.
+  other than `GET`, `HEAD`, and `OPTIONS` get `425 Too Early`, since 0-RTT data can be replayed.
 - QPACK uses only the static table, so it needs no extra streams and decodes requests without allocating.
 
 QUIC runs over UDP, so firewalls and load balancers need to let it through. [Deploying HTTP/3](docs/http3.md)

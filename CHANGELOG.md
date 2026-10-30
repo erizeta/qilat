@@ -23,8 +23,8 @@ The first release, planned as v0.1.0. Minimum Go version: 1.26.
   matching, `PathValue`, and `PeekPathValue`.
 - HTTP/2: flow control tied to handler reads, RFC 9218 priorities, trailers, and protections against Rapid
   Reset, CONTINUATION floods, and control-frame floods. Passes h2spec (147/147).
-- HTTP/3 on quic-go with a static-table QPACK decoder, Alt-Svc advertising, optional 0-RTT with `425 Too
-  Early` for requests that are not idempotent, and `GOAWAY` on shutdown.
+- HTTP/3 on quic-go with a static-table QPACK decoder, Alt-Svc advertising, optional 0-RTT that serves only
+  `GET`, `HEAD`, and `OPTIONS` early and answers other methods `425 Too Early`, and `GOAWAY` on shutdown.
 - `FromStd`, `ToStd`, and `FromStdMiddleware` adapters for net/http handlers and middleware, and `Chain` for
   native middleware.
 - `FileServer`, `ServeFile`, `ServeContent`, `StripPrefix`, `Error`, and `NotFound` with net/http behavior,

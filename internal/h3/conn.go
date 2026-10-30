@@ -26,8 +26,8 @@ type Config struct {
 	MaxConcurrentStreams int   // handlers running at once per connection
 	ReadTimeout          time.Duration
 	WriteTimeout         time.Duration
-	// Allow0RTT is set when the QUIC listener accepts 0-RTT; requests that are not idempotent and arrive
-	// before the handshake completes are then answered 425 Too Early (RFC 8470).
+	// Allow0RTT is set when the QUIC listener accepts 0-RTT; requests other than GET, HEAD, and OPTIONS that
+	// arrive before the handshake completes are then answered 425 Too Early (RFC 8470).
 	Allow0RTT bool
 	Logger    *slog.Logger
 }

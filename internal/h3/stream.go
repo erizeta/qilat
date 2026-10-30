@@ -116,8 +116,8 @@ func (s *stream) serve() error {
 	} else {
 		x.SetBody(&s.body, s.req.ContentLength)
 	}
-	// A request in 0-RTT data can be replayed by an attacker, so only idempotent ones are served early.
-	if c.cfg.Allow0RTT && !c.handshakeDone() && !idempotent(s.req.Method()) {
+	// A request in 0-RTT data can be replayed by an attacker, so only read-only ones are served early.
+	if c.cfg.Allow0RTT && !c.handshakeDone() && !allowedEarly(s.req.Method()) {
 		return s.reject(425)
 	}
 
@@ -155,11 +155,11 @@ func (s *stream) cancel(gen uint64) {
 	s.cancelMu.Unlock()
 }
 
-// idempotent reports whether a request with this method may be replayed, which 0-RTT allows (RFC 8470
-// section 4, RFC 9110 section 9.2.2).
-func idempotent(method []byte) bool {
+// allowedEarly reports whether a request with this method may be served from 0-RTT data (RFC 8470 section 4).
+// PUT and DELETE are idempotent, but a replay delivered later could undo a change made since.
+func allowedEarly(method []byte) bool {
 	switch string(method) {
-	case "GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE":
+	case "GET", "HEAD", "OPTIONS":
 		return true
 	}
 	return false
