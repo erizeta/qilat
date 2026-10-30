@@ -42,6 +42,8 @@ golangci-lint and govulncheck are run with `go run` at pinned versions, so no gl
   program in `examples/readme`, and a test there fails when the two differ.
 - Add an entry under `[Unreleased]` in `CHANGELOG.md` for user-facing changes, with migration notes for
   breaking ones.
+- Pull requests are reviewed automatically by [CodeRabbit](https://coderabbit.ai). Comment
+  `@coderabbitai review` to request a new review.
 
 ## Commit messages
 
