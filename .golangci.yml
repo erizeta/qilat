@@ -17,8 +17,8 @@ linters:
         linters:
           - revive
         text: unused-parameter
-      # HTTP/2 framing and HPACK pack integers into bytes on purpose; the values are range-checked first.
-      - path: internal/h2/
+      # HTTP/2 and HTTP/3 framing, HPACK, and QPACK pack integers into bytes on purpose; values are range-checked first.
+      - path: internal/h[23]/
         linters:
           - gosec
         text: G115

@@ -39,7 +39,6 @@ const (
 	maxMaxFrameSize    = 1<<24 - 1
 	maxWindow          = 1<<31 - 1
 	defaultWindow      = 65535
-	defaultUrgency     = 3 // RFC 9218 section 4.1
 	maxStreamID        = 1<<31 - 1
 	defaultHeaderTable = 4096
 )

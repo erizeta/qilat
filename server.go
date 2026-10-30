@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -58,19 +59,25 @@ type Server struct {
 	H2C bool
 	// DisableHTTP2 serves HTTP/1.1 only, even if TLSConfig.NextProtos lists "h2".
 	DisableHTTP2 bool
+	// HTTP3 configures HTTP/3, which ListenAndServeTLS and ServeQUIC serve over UDP.
+	HTTP3 HTTP3Config
+	// DisableHTTP3 makes ListenAndServeTLS serve TCP only.
+	DisableHTTP3 bool
 
 	// ReduceMemoryUsage returns read buffers to a pool while connections are idle, costing one extra read per request.
 	ReduceMemoryUsage bool
 	// DebugPoison makes handlers that use a request or ResponseWriter after ServeHTTP returns panic. It disables pooling.
 	DebugPoison bool
 
-	// BaseContext returns the base context for requests from ln. If nil, context.Background is used.
+	// BaseContext returns the base context for requests from ln, which is nil for HTTP/3. If BaseContext is nil,
+	// context.Background is used.
 	BaseContext func(ln net.Listener) context.Context
 	// ErrorLog receives handler panics and connection errors. If nil, slog.Default is used.
 	ErrorLog *slog.Logger
 
 	mu           sync.Mutex
-	listeners    map[net.Listener]struct{}
+	listeners    map[io.Closer]struct{}
+	altSvc       atomic.Pointer[[]byte] // Alt-Svc value advertising HTTP/3, while a QUIC listener runs
 	conns        map[serverConn]struct{}
 	cancels      []context.CancelFunc
 	shuttingDown atomic.Bool
@@ -92,8 +99,11 @@ func (s *Server) ListenAndServe(addr string) error {
 	return s.Serve(ln)
 }
 
-// ListenAndServeTLS listens on addr and serves HTTPS: HTTP/2 or HTTP/1.1, chosen through ALPN. An empty addr means ":https". The certificate files
-// may be empty if TLSConfig already holds certificates.
+// ListenAndServeTLS listens on addr and serves HTTPS: HTTP/2 and HTTP/1.1 over TCP, chosen through ALPN, and
+// HTTP/3 over UDP on the same port unless DisableHTTP3 is set. HTTP/1.1 and HTTP/2 responses then carry an
+// Alt-Svc header so clients can switch to HTTP/3. If either listener fails, the other is closed and the error
+// is returned. An empty addr means ":https". The certificate files may be empty if TLSConfig already holds
+// certificates.
 func (s *Server) ListenAndServeTLS(addr, certFile, keyFile string) error {
 	if s.shuttingDown.Load() {
 		return ErrServerClosed
@@ -101,15 +111,58 @@ func (s *Server) ListenAndServeTLS(addr, certFile, keyFile string) error {
 	if addr == "" {
 		addr = ":https"
 	}
+	config, err := s.tlsConfig(certFile, keyFile)
+	if err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	return s.ServeTLS(ln, certFile, keyFile)
+	if s.DisableHTTP3 {
+		return s.Serve(tls.NewListener(ln, config))
+	}
+	// A port of 0 picks a free TCP port; HTTP/3 must use the same number for Alt-Svc to point at it.
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	pc, err := net.ListenPacket("udp", net.JoinHostPort(host, port))
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	errc := make(chan error, 2)
+	go func() { errc <- s.Serve(tls.NewListener(ln, config)) }()
+	go func() { errc <- s.serveQUIC(pc, config) }()
+	first := <-errc
+	if !errors.Is(first, ErrServerClosed) {
+		// One protocol failed; stop the other so the caller sees a single, complete failure.
+		_ = ln.Close()
+		_ = pc.Close()
+	}
+	second := <-errc
+	if errors.Is(first, ErrServerClosed) && !errors.Is(second, ErrServerClosed) {
+		return second
+	}
+	return first
 }
 
-// ServeTLS serves HTTPS on ln. See [Server.ListenAndServeTLS] for the certificate arguments.
+// ServeTLS serves HTTPS on ln. See [Server.ListenAndServeTLS] for the certificate arguments. It serves
+// HTTP/1.1 and HTTP/2 only; use [Server.ServeQUIC] to add HTTP/3.
 func (s *Server) ServeTLS(ln net.Listener, certFile, keyFile string) error {
+	config, err := s.tlsConfig(certFile, keyFile)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	return s.Serve(tls.NewListener(ln, config))
+}
+
+// tlsConfig clones TLSConfig, offers h2 through ALPN, and loads the certificate files if given.
+func (s *Server) tlsConfig(certFile, keyFile string) (*tls.Config, error) {
 	var config *tls.Config
 	if s.TLSConfig != nil {
 		config = s.TLSConfig.Clone()
@@ -125,12 +178,11 @@ func (s *Server) ServeTLS(ln net.Listener, certFile, keyFile string) error {
 	if certFile != "" || keyFile != "" || (len(config.Certificates) == 0 && config.GetCertificate == nil) {
 		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
-			_ = ln.Close()
-			return err
+			return nil, err
 		}
 		config.Certificates = append(config.Certificates, cert)
 	}
-	return s.Serve(tls.NewListener(ln, config))
+	return config, nil
 }
 
 // Serve accepts connections on ln and serves each in its own goroutine. It always closes ln and
@@ -146,18 +198,7 @@ func (s *Server) Serve(ln net.Listener) error {
 	}
 	defer s.untrackListener(ln)
 
-	base := context.Background()
-	if s.BaseContext != nil {
-		if base = s.BaseContext(ln); base == nil {
-			panic("qilat: BaseContext returned a nil context")
-		}
-	}
-	ctx, cancel := context.WithCancel(base)
-	s.mu.Lock()
-	s.cancels = append(s.cancels, cancel)
-	s.mu.Unlock()
-
-	xcfg := &exchangeConfig{handler: s.Handler, baseCtx: ctx, poison: s.DebugPoison, logger: s.logger()}
+	xcfg := s.exchangeConfig(ln)
 	maxHeader, maxBody := s.limits()
 	cfg := s.h1Config(xcfg, maxHeader, maxBody)
 	var h2cfg *h2.Config
@@ -304,6 +345,21 @@ func (s *Server) Close() error {
 	return err
 }
 
+// exchangeConfig builds the per-listener core configuration. ln is nil for QUIC listeners.
+func (s *Server) exchangeConfig(ln net.Listener) *exchangeConfig {
+	base := context.Background()
+	if s.BaseContext != nil {
+		if base = s.BaseContext(ln); base == nil {
+			panic("qilat: BaseContext returned a nil context")
+		}
+	}
+	ctx, cancel := context.WithCancel(base)
+	s.mu.Lock()
+	s.cancels = append(s.cancels, cancel)
+	s.mu.Unlock()
+	return &exchangeConfig{handler: s.Handler, baseCtx: ctx, poison: s.DebugPoison, logger: s.logger(), altSvc: &s.altSvc}
+}
+
 // limits resolves the header and body limits shared by every protocol.
 func (s *Server) limits() (maxHeader int, maxBody int64) {
 	maxHeader = s.MaxHeaderBytes
@@ -355,20 +411,20 @@ func (s *Server) logger() *slog.Logger {
 	return slog.Default()
 }
 
-func (s *Server) trackListener(ln net.Listener) bool {
+func (s *Server) trackListener(ln io.Closer) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.shuttingDown.Load() {
 		return false
 	}
 	if s.listeners == nil {
-		s.listeners = make(map[net.Listener]struct{})
+		s.listeners = make(map[io.Closer]struct{})
 	}
 	s.listeners[ln] = struct{}{}
 	return true
 }
 
-func (s *Server) untrackListener(ln net.Listener) {
+func (s *Server) untrackListener(ln io.Closer) {
 	s.mu.Lock()
 	delete(s.listeners, ln)
 	s.mu.Unlock()

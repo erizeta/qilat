@@ -14,6 +14,7 @@ import (
 
 	"github.com/erizeta/qilat/internal/bytesconv"
 	"github.com/erizeta/qilat/internal/exchange"
+	"github.com/erizeta/qilat/internal/httpfields"
 	"golang.org/x/net/http2/hpack"
 )
 
@@ -425,7 +426,7 @@ func (c *Conn) onPriorityUpdate(h frameHeader, p []byte) error {
 	c.mu.Lock()
 	if st := c.streams[id]; st != nil {
 		p0 := st.priority.Load()
-		st.setPriority(parsePriority(p[4:], p0>>1, p0&1 != 0))
+		st.setPriority(httpfields.ParsePriority(p[4:], p0>>1, p0&1 != 0))
 	}
 	c.mu.Unlock()
 	return nil
@@ -921,7 +922,7 @@ func (c *Conn) writeHeaders(st *stream, status int, h exchange.HeaderList, endSt
 	if h != nil {
 		for i := range h.Len() {
 			name, value := h.At(i)
-			if skipResponseField(name, status == 0) {
+			if httpfields.SkipResponse(name, status == 0) {
 				continue
 			}
 			if string(name) == "date" {
@@ -931,14 +932,12 @@ func (c *Conn) writeHeaders(st *stream, status int, h exchange.HeaderList, endSt
 		}
 	}
 	if status >= 200 && !hasDate {
-		block = c.enc.appendField(block, dateName, dateValue())
+		block = c.enc.appendField(block, httpfields.DateName, httpfields.Date())
 	}
 	c.wbuf = block
 	c.writeHeaderBlock(st.id, block, endStream)
 	return c.unlockSched(flush || endStream)
 }
-
-var dateName = []byte("date")
 
 // writeHeaderBlock splits an encoded block into HEADERS and CONTINUATION frames. Callers hold sched.
 func (c *Conn) writeHeaderBlock(id uint32, block []byte, endStream bool) {
@@ -958,17 +957,6 @@ func (c *Conn) writeHeaderBlock(id uint32, block []byte, endStream bool) {
 		block = block[n:]
 		typ, flags = frameContinuation, 0
 	}
-}
-
-// skipResponseField drops fields HTTP/2 forbids (RFC 9113 section 8.2.2) and, in trailers, framing fields.
-func skipResponseField(name []byte, trailer bool) bool {
-	switch string(name) {
-	case "connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade":
-		return true
-	case "content-length", "host", "te", "trailer":
-		return trailer
-	}
-	return false
 }
 
 // writeData sends p as DATA frames within the flow-control windows, ending the stream if end is set.
@@ -1055,35 +1043,13 @@ type headerBlock struct {
 	resetCode ErrCode // reset the stream with this code after decoding, when resetting
 	resetting bool
 	frames    int
-	size      int // decoded header list size (RFC 9113 section 6.5.2)
-	tooLarge  bool
-	malformed string
-
-	x              exchange.Exchange
-	sawRegular     bool
-	method         []byte
-	scheme         []byte
-	path           []byte
-	authority      []byte
-	hasMethod      bool
-	hasScheme      bool
-	hasPath        bool
-	hasAuthority   bool
-	host           []byte
-	hasHost        bool
-	cookie         []byte
-	contentLength  int64
-	expectContinue bool
-	urgency        uint32
-	incremental    bool
+	x         exchange.Exchange
+	req       httpfields.Request
 }
 
 func (hb *headerBlock) reset(id uint32) {
-	*hb = headerBlock{
-		id: id, method: hb.method[:0], scheme: hb.scheme[:0], path: hb.path[:0],
-		authority: hb.authority[:0], host: hb.host[:0], cookie: hb.cookie[:0],
-		contentLength: -1, urgency: defaultUrgency, active: true,
-	}
+	req := hb.req
+	*hb = headerBlock{id: id, active: true, req: req}
 }
 
 func (c *Conn) onHeaders(h frameHeader, p []byte) error {
@@ -1117,8 +1083,6 @@ func (c *Conn) onHeaders(h frameHeader, p []byte) error {
 		switch {
 		case st.remoteClosed || st.reset:
 			hb.discard, hb.resetting, hb.resetCode = true, true, ErrCodeStreamClosed
-		case !hb.endStream:
-			hb.malformed = "trailers without END_STREAM"
 		}
 	case id <= c.maxClientID:
 		recent := c.recentlyReset(id)
@@ -1141,6 +1105,7 @@ func (c *Conn) onHeaders(h frameHeader, p []byte) error {
 			hb.x = c.cfg.Acquire()
 		}
 	}
+	hb.req.Reset(hb.x, hb.trailer, int(c.cfg.MaxHeaderListSize))
 	return c.onHeaderFragment(h, frag)
 }
 
@@ -1171,91 +1136,14 @@ func (c *Conn) onHeaderFragment(h frameHeader, frag []byte) error {
 }
 
 func (c *Conn) onField(f hpack.HeaderField) {
-	hb := &c.hb
-	if hb.discard || hb.malformed != "" || hb.tooLarge {
-		return
+	if !c.hb.discard {
+		c.hb.req.Field(bytesconv.S2B(f.Name), bytesconv.S2B(f.Value))
 	}
-	if hb.size += len(f.Name) + len(f.Value) + 32; hb.size > int(c.cfg.MaxHeaderListSize) {
-		hb.tooLarge = true
-		return
-	}
-	name, value := bytesconv.S2B(f.Name), bytesconv.S2B(f.Value)
-	if len(name) > 0 && name[0] == ':' {
-		hb.onPseudo(f.Name, value)
-		return
-	}
-	hb.sawRegular = true
-	if !validFieldName(name) || !validFieldValue(value) {
-		hb.malformed = "invalid header field"
-		return
-	}
-	if hb.trailer {
-		return // request trailers are validated, then discarded
-	}
-	switch f.Name {
-	case "connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade":
-		hb.malformed = "connection-specific header field"
-		return
-	case "te":
-		if f.Value != "trailers" {
-			hb.malformed = "TE other than trailers"
-		}
-	case "host":
-		hb.host, hb.hasHost = append(hb.host[:0], value...), true
-		return
-	case "cookie":
-		// Cookie crumbs are joined for HTTP/1.1 semantics (RFC 9113 section 8.2.3).
-		if len(hb.cookie) > 0 {
-			hb.cookie = append(hb.cookie, "; "...)
-		}
-		hb.cookie = append(hb.cookie, value...)
-		return
-	case "content-length":
-		n, ok := bytesconv.ParseUint(value)
-		if !ok || hb.contentLength >= 0 && hb.contentLength != n {
-			hb.malformed = "invalid content-length"
-			return
-		}
-		hb.contentLength = n
-	case "expect":
-		hb.expectContinue = asciiEqualFold(value, "100-continue")
-	case "priority":
-		hb.urgency, hb.incremental = parsePriority(value, hb.urgency, hb.incremental)
-	}
-	if hb.x.AddHeader(name, value) != nil {
-		hb.malformed = "invalid header field"
-	}
-}
-
-func (hb *headerBlock) onPseudo(name string, value []byte) {
-	if hb.sawRegular || hb.trailer {
-		hb.malformed = "misplaced pseudo-header"
-		return
-	}
-	var dst *[]byte
-	var seen *bool
-	switch name {
-	case ":method":
-		dst, seen = &hb.method, &hb.hasMethod
-	case ":scheme":
-		dst, seen = &hb.scheme, &hb.hasScheme
-	case ":path":
-		dst, seen = &hb.path, &hb.hasPath
-	case ":authority":
-		dst, seen = &hb.authority, &hb.hasAuthority
-	default:
-		hb.malformed = "unknown pseudo-header " + name
-		return
-	}
-	if *seen {
-		hb.malformed = "duplicate pseudo-header " + name
-		return
-	}
-	*dst, *seen = append((*dst)[:0], value...), true
 }
 
 func (c *Conn) endHeaderBlock() error {
 	hb := &c.hb
+	req := &hb.req
 	x := hb.x
 	hb.x = nil
 	release := func() {
@@ -1271,54 +1159,33 @@ func (c *Conn) endHeaderBlock() error {
 		release()
 		return nil
 	case hb.trailer:
-		if hb.malformed != "" || hb.tooLarge {
+		if req.Malformed != "" || req.TooLarge || !hb.endStream {
 			return streamError{hb.id, ErrCodeProtocol, "malformed trailers"}
 		}
 		return c.onTrailers(hb.id)
-	case hb.tooLarge:
+	case req.TooLarge:
 		release()
 		return c.rejectStream(hb.id, 431, hb.endStream)
-	case hb.malformed == "":
-		hb.malformed = hb.validate()
 	}
-	if hb.malformed != "" {
+	if msg := req.Finish(2); msg != "" {
 		release()
-		return streamError{hb.id, ErrCodeProtocol, hb.malformed}
+		return streamError{hb.id, ErrCodeProtocol, msg}
 	}
-	if hb.endStream && hb.contentLength > 0 {
+	if hb.endStream && req.ContentLength > 0 {
 		release()
 		return streamError{hb.id, ErrCodeProtocol, "content-length without DATA"}
 	}
-	if limit := c.cfg.MaxRequestBodySize; limit >= 0 && hb.contentLength > limit {
+	if limit := c.cfg.MaxRequestBodySize; limit >= 0 && req.ContentLength > limit {
 		release()
 		return c.rejectStream(hb.id, 413, hb.endStream)
 	}
-
-	connect := string(hb.method) == "CONNECT"
-	target := hb.path
-	if connect {
-		target = hb.authority
-	}
-	authority := hb.authority
-	if !hb.hasAuthority {
-		authority = hb.host
-	}
-	if x.SetMethod(hb.method) != nil || x.SetTarget(target) != nil || x.SetHost(authority) != nil {
-		release()
-		return streamError{hb.id, ErrCodeProtocol, "invalid request pseudo-header"}
-	}
-	if len(hb.cookie) > 0 && x.AddHeader(cookieName, hb.cookie) != nil {
-		release()
-		return streamError{hb.id, ErrCodeProtocol, "invalid cookie"}
-	}
-	x.SetProto(2, 0)
 	x.SetConn(c.remote, c.tlsState)
 
 	st := newStream(c, hb.id, x)
 	st.remoteClosed = hb.endStream
-	st.declared = hb.contentLength
-	st.expectContinue = hb.expectContinue && !hb.endStream
-	st.setPriority(hb.urgency, hb.incremental)
+	st.declared = req.ContentLength
+	st.expectContinue = req.ExpectContinue && !hb.endStream
+	st.setPriority(req.Urgency, req.Incremental)
 	st.body.limit = c.cfg.MaxRequestBodySize
 	c.mu.Lock()
 	st.sendWindow = c.peerWindow
@@ -1327,31 +1194,9 @@ func (c *Conn) endHeaderBlock() error {
 	if hb.endStream {
 		x.SetBody(nil, 0)
 	} else {
-		x.SetBody(&st.body, hb.contentLength)
+		x.SetBody(&st.body, req.ContentLength)
 	}
 	return c.startStream(st)
-}
-
-var cookieName = []byte("cookie")
-
-// validate checks the pseudo-headers of a request (RFC 9113 section 8.3.1).
-func (hb *headerBlock) validate() string {
-	switch {
-	case !hb.hasMethod:
-		return "missing :method"
-	case string(hb.method) == "CONNECT":
-		if !hb.hasAuthority || hb.hasScheme || hb.hasPath {
-			return "invalid CONNECT pseudo-headers"
-		}
-		return ""
-	case !hb.hasScheme || !hb.hasPath || len(hb.path) == 0:
-		return "missing :scheme or :path"
-	case hb.path[0] != '/' && (string(hb.path) != "*" || string(hb.method) != "OPTIONS"):
-		return "invalid :path"
-	case hb.hasAuthority && hb.hasHost && string(hb.authority) != string(hb.host):
-		return ":authority and host differ"
-	}
-	return ""
 }
 
 func (c *Conn) onTrailers(id uint32) error {
@@ -1404,75 +1249,6 @@ func appendUint(b []byte, n int) []byte {
 		b = appendUint(b, n/10)
 	}
 	return append(b, byte('0'+n%10))
-}
-
-// validFieldName reports whether name is a lowercase RFC 9110 token, as HTTP/2 requires.
-func validFieldName(name []byte) bool {
-	if len(name) == 0 {
-		return false
-	}
-	for _, ch := range name {
-		if !lowerTokenTable[ch] {
-			return false
-		}
-	}
-	return true
-}
-
-var lowerTokenTable = func() (t [256]bool) {
-	for c := range 256 {
-		switch {
-		case 'a' <= c && c <= 'z', '0' <= c && c <= '9':
-			t[c] = true
-		}
-	}
-	for _, c := range "!#$%&'*+-.^_`|~" {
-		t[c] = true
-	}
-	return t
-}()
-
-// validFieldValue rejects NUL, CR, LF, and leading or trailing whitespace (RFC 9113 section 8.2.1).
-func validFieldValue(v []byte) bool {
-	for _, ch := range v {
-		if ch == 0 || ch == '\r' || ch == '\n' {
-			return false
-		}
-	}
-	return len(v) == 0 || v[0] != ' ' && v[0] != '\t' && v[len(v)-1] != ' ' && v[len(v)-1] != '\t'
-}
-
-func asciiEqualFold(b []byte, lower string) bool {
-	if len(b) != len(lower) {
-		return false
-	}
-	for i, ch := range b {
-		if 'A' <= ch && ch <= 'Z' {
-			ch += 'a' - 'A'
-		}
-		if ch != lower[i] {
-			return false
-		}
-	}
-	return true
-}
-
-var dateCache atomic.Pointer[dateEntry]
-
-type dateEntry struct {
-	sec   int64
-	value []byte
-}
-
-func dateValue() []byte {
-	now := time.Now()
-	sec := now.Unix()
-	if d := dateCache.Load(); d != nil && d.sec == sec {
-		return d.value
-	}
-	v := now.UTC().AppendFormat(nil, "Mon, 02 Jan 2006 15:04:05 GMT")
-	dateCache.Store(&dateEntry{sec: sec, value: v})
-	return v
 }
 
 func getReader(r io.Reader) *bufio.Reader {

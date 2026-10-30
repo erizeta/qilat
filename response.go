@@ -69,6 +69,7 @@ type response struct {
 	err         error
 	hijacked    bool
 	dead        bool
+	altSvc      []byte // added to the header unless the handler set Alt-Svc
 }
 
 func (w *response) init(sink exchange.ResponseSink, req *Request) {
@@ -246,7 +247,7 @@ func (w *response) finish() error {
 // sendComplete hands a fully buffered response to the protocol in one call.
 func (w *response) sendComplete(cs exchange.CompleteSink, contentLength int64) error {
 	w.sentHeader = true
-	w.setContentLength(contentLength)
+	w.finalizeHeader(contentLength)
 	var trailer exchange.HeaderList
 	if w.trailer.Len() > 0 {
 		trailer = (*headerList)(&w.trailer)
@@ -259,9 +260,12 @@ func (w *response) sendComplete(cs exchange.CompleteSink, contentLength int64) e
 	return err
 }
 
-// setContentLength rewrites Content-Length to match the framing the protocol will use, since the header
-// is sent lazily.
-func (w *response) setContentLength(contentLength int64) {
+// finalizeHeader adds Alt-Svc and rewrites Content-Length to match the framing the protocol will use,
+// since the header is sent lazily.
+func (w *response) finalizeHeader(contentLength int64) {
+	if w.altSvc != nil && !w.header.Has("alt-svc") {
+		w.header.SetBytes("alt-svc", w.altSvc)
+	}
 	if w.noBody {
 		return
 	}
@@ -275,7 +279,7 @@ func (w *response) setContentLength(contentLength int64) {
 
 func (w *response) sendHeader(contentLength int64) error {
 	w.sentHeader = true
-	w.setContentLength(contentLength)
+	w.finalizeHeader(contentLength)
 	if err := w.sink.WriteHeader(w.status, (*headerList)(&w.header), contentLength); err != nil {
 		w.err = err
 		return err

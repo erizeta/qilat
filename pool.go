@@ -9,6 +9,7 @@ import (
 	"net"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	"github.com/erizeta/qilat/internal/exchange"
 )
@@ -20,6 +21,8 @@ type exchangeConfig struct {
 	// poison makes released requests and writers panic on use instead of returning them to the pool.
 	poison bool
 	logger *slog.Logger
+	// altSvc, when set, holds the Alt-Svc value that advertises HTTP/3 on HTTP/1.1 and HTTP/2 responses.
+	altSvc *atomic.Pointer[[]byte]
 }
 
 // serverExchange is the core side of one request/response pair, driven by a protocol.
@@ -71,6 +74,11 @@ var errHandlerPanic = errors.New("qilat: handler panicked")
 
 func (x *serverExchange) Serve(w exchange.ResponseSink) (err error) {
 	x.resp.init(w, &x.req)
+	if a := x.cfg.altSvc; a != nil && x.req.proto != "HTTP/3.0" {
+		if v := a.Load(); v != nil {
+			x.resp.altSvc = *v
+		}
+	}
 	// Like net/http, the request context is canceled once the handler returns.
 	defer x.req.st.cancel()
 	defer func() {

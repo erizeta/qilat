@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/erizeta/qilat/internal/exchange"
+	"github.com/erizeta/qilat/internal/httpfields"
 )
 
 // stream is one request/response. Fields under "guarded by c.mu" are shared with the connection reader;
@@ -40,7 +41,7 @@ func newStream(c *Conn, id uint32, x exchange.Exchange) *stream {
 	st.body.st = st
 	st.body.cond.L = &st.body.mu
 	st.sink.st = st
-	st.priority.Store(defaultUrgency << 1)
+	st.priority.Store(httpfields.DefaultUrgency << 1)
 	st.waiter = newWaiter(id, &st.priority)
 	return st
 }

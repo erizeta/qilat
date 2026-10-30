@@ -40,6 +40,24 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## M5: HTTP/3 server
+
+`BenchmarkH3` serves the same scenarios with qilat and the quic-go/http3 server, both on quic-go v0.64.1, and
+drives them with the quic-go/http3 client over loopback UDP. Same machine and Go version as M2; medians over 5
+runs, raw output in [`results/m5-h3.txt`](results/m5-h3.txt). The client and QUIC itself are most of the cost.
+
+| Scenario | quic-go/http3 | qilat | quic-go/http3 allocs | qilat allocs |
+|---|---|---|---|---|
+| plaintext | 15.3 µs | **10.5 µs** | 199 | 131 |
+| json-1kb | 19.5 µs | **11.9 µs** | 206 | 139 |
+| headers-20 | 24.1 µs | **14.0 µs** | 341 | 190 |
+| upload-64kb | 245 µs | 242 µs | 880 | 769 |
+
+- qilat decodes QPACK into the pooled request without allocating (static table only) and writes each response
+  in one stream write; quic-go/http3 builds a `net/http` request per stream. The upload is bound by QUIC flow
+  control and packet handling, which both servers share.
+- No out-of-process HTTP/3 load generator is used yet; `h2load --h3` needs an nghttp2 build with ngtcp2.
+
 ## M4: HTTP/2 server
 
 Same machine and Go version as M2. Both servers use their default settings; the handler returns 13 bytes.

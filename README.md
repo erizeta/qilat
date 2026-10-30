@@ -46,8 +46,7 @@ go get github.com/erizeta/qilat
 
 ## Quick start
 
-qilat currently serves **HTTP/1.1** and **HTTP/2** (over TLS, and cleartext h2c). HTTP/3 follows on the
-[roadmap](#roadmap).
+qilat serves **HTTP/1.1**, **HTTP/2** (over TLS, and cleartext h2c), and **HTTP/3** with the same handlers.
 
 ```go
 package main
@@ -208,23 +207,64 @@ side: `go run ./examples/http2`, then `curl -k --http2 https://localhost:8443`.
 Trailers work on HTTP/1.1 too, in a chunked body. They are dropped only when the handler sets `Content-Length`
 itself, or for HTTP/1.0 clients.
 
+### HTTP/3
+
+`ListenAndServeTLS` also serves HTTP/3 over UDP on the same port, and adds an `Alt-Svc` header to HTTP/1.1 and
+HTTP/2 responses so browsers and curl switch to HTTP/3 on their next request:
+
+```go
+package main
+
+import (
+	"crypto/tls"
+	"log"
+
+	"github.com/erizeta/qilat"
+)
+
+func main() {
+	cert, err := qilat.GenerateDevCert() // self-signed, for local development only
+	if err != nil {
+		log.Fatal(err)
+	}
+	srv := &qilat.Server{
+		Handler: qilat.HandlerFunc(func(w qilat.ResponseWriter, r *qilat.Request) {
+			_, _ = w.WriteString("hello over " + r.Proto() + "\n")
+		}),
+		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+	}
+	// TCP: HTTP/1.1 and HTTP/2. UDP: HTTP/3. Both on port 8443.
+	log.Fatal(srv.ListenAndServeTLS(":8443", "", ""))
+}
+```
+
+```sh
+curl -k --http3-only https://localhost:8443   # hello over HTTP/3.0 (needs a curl built with HTTP/3)
+curl -k https://localhost:8443                # hello over HTTP/2.0, with alt-svc: h3=":8443"; ma=86400
+```
+
+The same program is in [`examples/h3-dev-cert`](examples/h3-dev-cert/main.go): `go run ./examples/h3-dev-cert`.
+In production, pass your certificate files instead: `srv.ListenAndServeTLS(":443", "cert.pem", "key.pem")`.
+
+- If either the TCP or the UDP listener fails, `ListenAndServeTLS` closes the other and returns the error.
+- `ServeQUIC(packetConn)` serves HTTP/3 on a UDP socket of your own; `DisableHTTP3` keeps `ListenAndServeTLS`
+  on TCP only.
+- `Server.HTTP3` tunes stream and flow-control limits and the Alt-Svc max age, or turns Alt-Svc off.
+- 0-RTT is off by default. With `HTTP3.Allow0RTT`, returning clients save a round trip, and requests that
+  arrive in 0-RTT with a method that is not idempotent are answered `425 Too Early`, since 0-RTT data can be
+  replayed.
+- Request contexts are canceled when the client resets the stream; `Shutdown` sends GOAWAY, lets running
+  requests finish, then closes the connection.
+- QPACK uses only the static table, so it needs no extra streams and decodes requests without allocating.
+- QUIC needs UDP: open the UDP port in firewalls and load balancers. On Linux, quic-go may ask you to raise
+  `net.core.rmem_max` for large receive buffers.
+
 ### Request lifetime
 
 Like fasthttp, qilat reuses requests between clients. A `*Request`, its `Header`, and every `[]byte` it returns
 are valid only until `ServeHTTP` returns. Copy what you need, or call `r.Clone(ctx)` to keep the whole request.
 `r.Context()` is the exception: it is never reused, so it is safe to pass to goroutines, and like net/http it is
 canceled when the client disconnects or the handler returns.
-
-## Planned API
-
-The snippet below shows the intended shape of HTTP/3 support. **It does not work yet**: today
-`ListenAndServeTLS` serves HTTP/1.1 and HTTP/2 over TCP only.
-
-```go
-srv := &qilat.Server{Handler: mux}
-// Serves HTTP/1.1 and HTTP/2 over TCP and HTTP/3 over UDP on the same port.
-log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
-```
 
 ## Roadmap
 
@@ -235,7 +275,7 @@ log.Fatal(srv.ListenAndServeTLS(":8443", "cert.pem", "key.pem"))
 | M2 | HTTP/1.1 server, graceful shutdown | ✅ Done |
 | M3 | `ServeMux` with Go 1.22 patterns | ✅ Done |
 | M4 | HTTP/2 server | ✅ Done |
-| M5 | HTTP/3 server, combined H1/H2/H3 server | Planned |
+| M5 | HTTP/3 server, combined H1/H2/H3 server | ✅ Done |
 | M6 | net/http adapters, `FileServer`, compression | Planned |
 | M7 | Client and Transport (H1/H2/H3) | Planned |
 | M8 | Fuzzing, security review, documentation, v0.1.0 | Planned |
