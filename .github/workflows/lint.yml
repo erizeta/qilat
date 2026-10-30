@@ -21,21 +21,21 @@ jobs:
       - name: go vet
         run: make vet
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
       - name: golangci-lint (benchmarks)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
           working-directory: benchmarks
       - name: golangci-lint (examples/std-middleware)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
           working-directory: examples/std-middleware
       - name: golangci-lint (examples/readme)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
           working-directory: examples/readme
