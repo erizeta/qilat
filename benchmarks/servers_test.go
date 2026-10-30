@@ -176,9 +176,9 @@ func startQilatH2C(tb testing.TB, ln net.Listener) func() {
 
 func serveQilat(tb testing.TB, ln net.Listener, h2c bool) func() {
 	srv := &qilat.Server{
-		Handler:  qilat.HandlerFunc(qilatHandler),
-		ErrorLog: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		H2C:      h2c,
+		Handler: qilat.HandlerFunc(qilatHandler),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		H2C:     h2c,
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()

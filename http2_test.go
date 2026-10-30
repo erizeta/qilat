@@ -111,7 +111,7 @@ func startTLSServer(t *testing.T, h HandlerFunc, cert tls.Certificate, configure
 	srv := &Server{
 		Handler:   h,
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	for _, f := range configure {
 		f(srv)

@@ -20,12 +20,12 @@ import (
 
 // Defaults used when the corresponding Transport field is zero.
 const (
-	DefaultMaxIdleConnsPerHost = 100
-	DefaultIdleConnTimeout     = 90 * time.Second
-	DefaultDialTimeout         = 30 * time.Second
-	DefaultTLSHandshakeTimeout = 10 * time.Second
-	DefaultMaxResponseHeader   = 64 << 10
-	DefaultHTTP3DialTimeout    = time.Second
+	DefaultMaxIdleConnsPerHost    = 100
+	DefaultIdleConnTimeout        = 90 * time.Second
+	DefaultDialTimeout            = 30 * time.Second
+	DefaultTLSHandshakeTimeout    = 10 * time.Second
+	DefaultMaxResponseHeaderBytes = 64 << 10
+	DefaultHTTP3DialTimeout       = time.Second
 )
 
 // http3BrokenFor is how long a host whose advertised HTTP/3 endpoint failed is reached over TCP only.
@@ -62,7 +62,7 @@ type Transport struct {
 	IdleConnTimeout time.Duration
 	// ResponseHeaderTimeout limits waiting for the response header after the request is sent; zero means no limit.
 	ResponseHeaderTimeout time.Duration
-	// MaxResponseHeaderBytes limits the response header; zero means DefaultMaxResponseHeader.
+	// MaxResponseHeaderBytes limits the response header; zero means DefaultMaxResponseHeaderBytes.
 	MaxResponseHeaderBytes int
 	// MaxResponseBodySize limits Response.ReadBody; zero means DefaultMaxResponseBodySize, negative no limit.
 	// Reading Response.Body directly is not limited.
@@ -102,7 +102,7 @@ type connKey struct {
 func (t *Transport) init() {
 	t.initOnce.Do(func() {
 		t.h1cfg = h1.ClientConfig{
-			MaxHeaderBytes:        orDefault(t.MaxResponseHeaderBytes, DefaultMaxResponseHeader),
+			MaxHeaderBytes:        orDefault(t.MaxResponseHeaderBytes, DefaultMaxResponseHeaderBytes),
 			ResponseHeaderTimeout: t.ResponseHeaderTimeout,
 		}
 		t.h2cfg = h2.ClientConfig{

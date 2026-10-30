@@ -71,7 +71,7 @@ func startServer(t *testing.T, h HandlerFunc, configure ...func(*Server)) *testS
 	t.Helper()
 	checkGoroutines(t)
 	logs := &syncBuffer{}
-	srv := &Server{Handler: h, ErrorLog: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+	srv := &Server{Handler: h, Logger: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 	for _, f := range configure {
 		f(srv)
 	}
@@ -722,7 +722,7 @@ func TestServerTLS(t *testing.T) {
 			_, _ = w.WriteString("secure")
 		}),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

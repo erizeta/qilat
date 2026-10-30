@@ -126,7 +126,7 @@ func TestHTTP3ZeroRTTRejectsUnsafeRequests(t *testing.T) {
 		Handler:   HandlerFunc(func(w ResponseWriter, r *Request) { _, _ = w.WriteString("ok") }),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
 		HTTP3:     HTTP3Config{Allow0RTT: true},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	udp, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {

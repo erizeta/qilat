@@ -656,7 +656,7 @@ Other settings:
 
 - `TLSConfig` is cloned, never modified. `H2C`, `DisableHTTP2`, and `DisableHTTP3` choose protocols.
 - `HTTP2` and `HTTP3` tune per-protocol limits: receive buffers, frame size, and Alt-Svc.
-- `BaseContext` sets the parent context of requests; `ErrorLog` takes a `*slog.Logger` for handler panics and
+- `BaseContext` sets the parent context of requests; `Logger` takes a `*slog.Logger` for handler panics and
   connection errors.
 - `ReduceMemoryUsage` returns read buffers to a pool while connections are idle, for servers with many idle
   connections.
