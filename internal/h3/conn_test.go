@@ -655,3 +655,95 @@ func TestBodyEndsWithDataAndEOF(t *testing.T) {
 		t.Fatalf("read %d bytes: %v", n, err)
 	}
 }
+
+// FuzzControlStream feeds arbitrary bytes to the control and QPACK encoder stream parsers. The streams never
+// end cleanly, so both must return an error once the input runs out.
+func FuzzControlStream(f *testing.F) {
+	settings := quicvarint.Append(quicvarint.Append(nil, settingMaxFieldSectionSize), 1<<16)
+	f.Add(append(frame(frameSettings, settings), frame(frameGoAway, quicvarint.Append(nil, 4))...))
+	f.Add(append(frame(frameSettings, nil), frame(0x21, []byte("grease"))...))
+	f.Add(frame(frameSettings, quicvarint.Append(quicvarint.Append(nil, 0x4), 1)))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if (&Conn{}).readControl(bufio.NewReader(bytes.NewReader(data))) == nil {
+			t.Fatal("control stream ended without an error")
+		}
+		if readEncoderStream(bufio.NewReader(bytes.NewReader(data))) == nil {
+			t.Fatal("encoder stream ended without an error")
+		}
+	})
+}
+
+type clientResp struct {
+	body io.ReadCloser
+}
+
+func (r *clientResp) SetStatus(int, int, int)          {}
+func (r *clientResp) AddHeader(_, _ []byte) error      { return nil }
+func (r *clientResp) AddTrailer(_, _ []byte) error     { return nil }
+func (r *clientResp) SetBody(b io.ReadCloser, _ int64) { r.body = b }
+
+type noFields struct{}
+
+func (noFields) Len() int             { return 0 }
+func (noFields) At(int) (_, _ []byte) { return nil, nil }
+
+// TestClientResponseLimits answers with sections a hostile server could send: trailers that claim 2^40 bytes,
+// and a short header section of static table references that decodes to over MaxFieldSectionSize.
+func TestClientResponseLimits(t *testing.T) {
+	ln, err := quic.ListenAddr("127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{testCert(t)},
+		NextProtos: []string{"h3"}}, &quic.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	expanding := appendSectionPrefix(nil)
+	expanding = append(expanding, 0xc0|25) // :status 200
+	for range 1000 {
+		expanding = append(expanding, 0xc0|31) // accept-encoding: gzip, deflate, br
+	}
+	responses := [][]byte{
+		appendFrameHeader(frame(frameHeaders, encodeFields(":status", "200")), frameHeaders, 1<<40),
+		frame(frameHeaders, expanding),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		qc, err := ln.Accept(ctx)
+		if err != nil {
+			return
+		}
+		ctrl, err := qc.OpenUniStream()
+		if err != nil {
+			return
+		}
+		_, _ = ctrl.Write(append([]byte{streamControl}, frame(frameSettings, nil)...))
+		for _, r := range responses {
+			str, err := qc.AcceptStream(ctx)
+			if err != nil {
+				return
+			}
+			_, _ = str.Write(r)
+		}
+		<-ctx.Done()
+	}()
+
+	c, err := Dial(ctx, ln.Addr().String(), &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test certificate
+		&ClientConfig{MaxFieldSectionSize: 16 << 10}, nil, func(*ClientConn) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	req := &exchange.ClientRequest{Method: "GET", Scheme: "https", Authority: []byte("localhost"), Target: []byte("/"),
+		Header: noFields{}}
+
+	var resp clientResp
+	if err := c.RoundTrip(ctx, req, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(resp.body); !errors.Is(err, errHeaderTooLarge) {
+		t.Fatalf("oversized trailers: %v", err)
+	}
+	if err := c.RoundTrip(ctx, req, &clientResp{}); !errors.Is(err, errHeaderTooLarge) {
+		t.Fatalf("expanding header section: %v", err)
+	}
+}

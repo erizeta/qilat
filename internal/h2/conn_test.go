@@ -896,3 +896,68 @@ func TestErrCodeString(t *testing.T) {
 		t.Fatal("error strings")
 	}
 }
+
+// FuzzHPACKEncoder encodes arbitrary fields and table size changes; the reference decoder must read back
+// exactly the fields given. Lines are "name:value"; a line starting with '!' sets the table size.
+func FuzzHPACKEncoder(f *testing.F) {
+	f.Add([]byte("content-type:text/html\nx-a:1\n\n!\nx-a:1\n\n!!!!!\nx-a:1\nset-cookie:s"), uint16(4096))
+	f.Add([]byte("a:b\n\na:b\n\n:status:999"), uint16(64))
+	f.Fuzz(func(t *testing.T, data []byte, limit uint16) {
+		enc := newEncoder(uint32(limit))
+		dec := hpack.NewDecoder(defaultHeaderTable, nil)
+		for block := range bytes.SplitSeq(data, []byte("\n\n")) {
+			type field struct{ name, value string }
+			var want []field
+			lines := bytes.Split(block, []byte("\n"))
+			// One size change between blocks, as a SETTINGS frame makes, never above what the peer decodes.
+			// x/net's decoder rejects the "smallest, then final" pair RFC 7541 section 4.2 allows.
+			if len(lines) > 0 && bytes.HasPrefix(lines[0], []byte("!")) {
+				enc.setMaxSize(min(uint32(len(lines[0])-1)*100, defaultHeaderTable))
+				lines = lines[1:]
+			}
+			b := enc.startBlock(nil)
+			for _, line := range lines {
+				name, value, _ := bytes.Cut(line, []byte(":"))
+				b = enc.appendField(b, name, value)
+				want = append(want, field{string(name), string(value)})
+			}
+			got, err := dec.DecodeFull(b)
+			if err != nil {
+				t.Fatalf("decoding %x: %v", b, err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("decoded %d fields, want %d", len(got), len(want))
+			}
+			for i := range got {
+				if got[i].Name != want[i].name || got[i].Value != want[i].value {
+					t.Fatalf("field %d = %q: %q, want %q: %q", i, got[i].Name, got[i].Value, want[i].name, want[i].value)
+				}
+			}
+			if enc.size > enc.maxSize {
+				t.Fatalf("table size %d over capacity %d", enc.size, enc.maxSize)
+			}
+		}
+	})
+}
+
+// FuzzHPACKDecode feeds arbitrary header blocks to the decoder as the server configures it.
+func FuzzHPACKDecode(f *testing.F) {
+	var hb bytes.Buffer
+	enc := hpack.NewEncoder(&hb)
+	for _, kv := range [][2]string{{":method", "GET"}, {":path", "/"}, {"x-long", strings.Repeat("v", 100)}} {
+		_ = enc.WriteField(hpack.HeaderField{Name: kv[0], Value: kv[1]})
+	}
+	f.Add(hb.Bytes())
+	f.Add([]byte{0x3f, 0xe1, 0x1f})
+	f.Fuzz(func(t *testing.T, p []byte) {
+		const maxString = 64
+		d := newDecoder(defaultHeaderTable, maxString, func(hf hpack.HeaderField) {
+			if len(hf.Name) > maxString || len(hf.Value) > maxString {
+				t.Fatalf("field over %d bytes: %d, %d", maxString, len(hf.Name), len(hf.Value))
+			}
+		})
+		if _, err := d.Write(p); err == nil {
+			_ = d.Close()
+		}
+	})
+}

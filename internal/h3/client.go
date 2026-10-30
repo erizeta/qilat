@@ -26,6 +26,7 @@ type ClientConfig struct {
 
 var (
 	errMalformedResponse = errors.New("h3: malformed response")
+	errHeaderTooLarge    = errors.New("h3: response header exceeds MaxFieldSectionSize")
 	errRespBodyClosed    = errors.New("h3: response body read after close")
 	// ErrConnUnavailable is returned by RoundTrip when the connection no longer takes requests; nothing was sent.
 	ErrConnUnavailable = errors.New("h3: connection cannot take more requests")
@@ -424,6 +425,7 @@ type headerSink struct {
 	s       *clientStream
 	trailer bool
 	n       int
+	size    int // decoded size (RFC 9114 section 4.2.2); static table references expand the encoded bytes
 	err     error
 }
 
@@ -432,6 +434,10 @@ func (h *headerSink) Field(name, value []byte) {
 		return
 	}
 	s := h.s
+	if h.size += len(name) + len(value) + 32; h.size > s.c.cfg.MaxFieldSectionSize {
+		h.err = errHeaderTooLarge
+		return
+	}
 	first := h.n == 0
 	h.n++
 	if h.trailer {
@@ -498,6 +504,9 @@ func (s *clientStream) Read(p []byte) (int, error) {
 		case typ == frameData:
 			s.remaining = length
 		case typ == frameHeaders:
+			if length > uint64(s.c.cfg.MaxFieldSectionSize) { //nolint:gosec // positive by construction
+				return 0, s.end(errHeaderTooLarge)
+			}
 			payload, err := s.readPayload(length)
 			if err != nil {
 				return 0, s.end(err)

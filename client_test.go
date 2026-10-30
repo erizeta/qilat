@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -488,5 +489,180 @@ func TestClientH1FullDuplexUpload(t *testing.T) {
 		}
 		ReleaseResponse(resp)
 		ReleaseRequest(req)
+	}
+}
+
+// FuzzClientResponseH1 answers a GET with arbitrary bytes: the client must return an error or a response
+// whose body stays within MaxResponseBodySize, without hanging or panicking.
+func FuzzClientResponseH1(f *testing.F) {
+	f.Add([]byte("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"))
+	f.Add([]byte("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5;ext=1\r\nhello\r\n0\r\nX-T: v\r\n\r\n"))
+	f.Add([]byte("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 204 No Content\r\n\r\n"))
+	f.Add([]byte("HTTP/1.0 301 Moved\r\nLocation: /x\r\n\r\n"))
+	f.Add([]byte("HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nab"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		tr := &Transport{
+			MaxResponseHeaderBytes: 1 << 10,
+			MaxResponseBodySize:    1 << 10,
+			ResponseHeaderTimeout:  time.Second,
+			DialContext: func(context.Context, string, string) (net.Conn, error) {
+				cc, sc := net.Pipe()
+				go func() {
+					defer func() { _ = sc.Close() }()
+					_ = sc.SetDeadline(time.Now().Add(2 * time.Second))
+					var req bytes.Buffer
+					buf := make([]byte, 512)
+					for !bytes.Contains(req.Bytes(), []byte("\r\n\r\n")) {
+						n, err := sc.Read(buf)
+						if err != nil {
+							return
+						}
+						req.Write(buf[:n])
+					}
+					_, _ = sc.Write(data)
+				}()
+				return cc, nil
+			},
+		}
+		defer tr.CloseIdleConnections()
+		c := &Client{
+			Transport:     tr,
+			Timeout:       3 * time.Second,
+			CheckRedirect: func(*Request, *Response, int) error { return ErrUseLastResponse },
+		}
+		resp := AcquireResponse()
+		defer ReleaseResponse(resp)
+		if err := c.Get("http://fuzz.test/", resp); err != nil {
+			return
+		}
+		if b, err := resp.ReadBody(); err == nil && len(b) > 1<<10 {
+			t.Fatalf("body of %d bytes exceeds MaxResponseBodySize", len(b))
+		}
+	})
+}
+
+// TestClientReadBodyDeclaredLength declares 60 MB and sends 3 bytes: the client must not allocate for the claim.
+func TestClientReadBodyDeclaredLength(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		nc, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = nc.Close() }()
+		_, _ = nc.Read(make([]byte, 4096))
+		_, _ = io.WriteString(nc, "HTTP/1.1 200 OK\r\nContent-Length: 60000000\r\n\r\nabc")
+	}()
+	c, _ := newTestClient(t)
+	resp := AcquireResponse()
+	defer ReleaseResponse(resp)
+	if err := c.Get("http://"+ln.Addr().String()+"/", resp); err != nil {
+		t.Fatal(err)
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	if _, err := resp.ReadBody(); err == nil {
+		t.Fatal("truncated body read without error")
+	}
+	runtime.ReadMemStats(&after)
+	if n := after.TotalAlloc - before.TotalAlloc; n > 8<<20 {
+		t.Fatalf("ReadBody allocated %d bytes for a 3-byte body", n)
+	}
+}
+
+// TestClientSuspectFramingNotReused sends responses whose framing could desynchronize the connection; the
+// next request must go on a new connection and never read leftover bytes as its response.
+func TestClientSuspectFramingNotReused(t *testing.T) {
+	for _, tt := range []struct {
+		name, resp, body string
+		closes           bool // the body ends when the server closes
+	}{
+		{"Content-Length with Transfer-Encoding",
+			"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n", "abc", false},
+		{"chunked not final",
+			"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: gzip\r\n\r\nabc", "abc", true},
+		{"bytes after the response",
+			"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabcHTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nevil", "abc", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			checkGoroutines(t)
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var conns atomic.Int32
+			var wg sync.WaitGroup
+			defer wg.Wait()
+			defer func() { _ = ln.Close() }()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					nc, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					conns.Add(1)
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						defer func() { _ = nc.Close() }()
+						// Every request on the connection gets the same answer, so a reused one is counted, not retried.
+						for {
+							if _, err := nc.Read(make([]byte, 4096)); err != nil {
+								return
+							}
+							if _, err := io.WriteString(nc, tt.resp); err != nil || tt.closes {
+								return
+							}
+						}
+					}()
+				}
+			}()
+			c, tr := newTestClient(t)
+			for range 2 {
+				if _, body := do(t, c, "GET", "http://"+ln.Addr().String()+"/", ""); body != tt.body {
+					t.Fatalf("body %q", body)
+				}
+			}
+			tr.CloseIdleConnections()
+			if n := conns.Load(); n != 2 {
+				t.Fatalf("%d connections, want 2", n)
+			}
+		})
+	}
+}
+
+func TestClientInformationalLimit(t *testing.T) {
+	for _, tt := range []struct {
+		n  int
+		ok bool
+	}{{5, true}, {6, false}} {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer func() { _ = nc.Close() }()
+			_, _ = nc.Read(make([]byte, 4096))
+			_, _ = io.WriteString(nc, strings.Repeat("HTTP/1.1 103 Early Hints\r\n\r\n", tt.n)+
+				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+		}()
+		c, _ := newTestClient(t)
+		resp := AcquireResponse()
+		err = c.Get("http://"+ln.Addr().String()+"/", resp)
+		ReleaseResponse(resp)
+		_ = ln.Close()
+		if (err == nil) != tt.ok {
+			t.Fatalf("%d informational responses: %v", tt.n, err)
+		}
 	}
 }

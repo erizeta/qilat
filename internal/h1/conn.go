@@ -385,6 +385,8 @@ func (cr *connReader) startBackgroundRead() {
 	}
 	cr.inRead = true
 	cr.mu.Unlock()
+	// The body has been read, so ReadTimeout is done; left in place it would look like a disconnect.
+	_ = cr.c.nc.SetReadDeadline(time.Time{})
 	go cr.backgroundRead()
 }
 

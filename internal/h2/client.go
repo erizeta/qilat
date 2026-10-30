@@ -36,6 +36,7 @@ var (
 	// ErrConnUnavailable is returned by RoundTrip when the connection cannot open another stream; nothing was sent.
 	ErrConnUnavailable = errors.New("h2: connection cannot take more streams")
 	errMalformedResp   = errors.New("h2: malformed response header")
+	errHeaderTooLarge  = errors.New("h2: response header exceeds MaxHeaderListSize")
 	errBodyAfterClose  = errors.New("h2: response body read after close")
 )
 
@@ -53,12 +54,13 @@ type ClientConn struct {
 	fhdr [frameHeaderLen]byte
 
 	// Reader goroutine only.
-	fr      framer
-	dec     *hpack.Decoder
-	fields  []hpack.HeaderField
-	blockID uint32
-	blockN  int
-	blockES bool
+	fr         framer
+	dec        *hpack.Decoder
+	fields     []hpack.HeaderField
+	fieldsSize int // RFC 9113 section 6.5.2 size of the block so far; over the limit drops the fields
+	blockID    uint32
+	blockN     int
+	blockES    bool
 
 	mu          sync.Mutex
 	flow        sync.Cond // send windows grew, or a stream or the connection ended
@@ -93,6 +95,11 @@ func NewClientConn(nc net.Conn, cfg *ClientConfig, onClose func(*ClientConn)) (*
 	c.flow.L = &c.mu
 	c.fr = framer{r: bufio.NewReaderSize(nc, writeBufferSize), maxRead: clientMaxFrame}
 	c.dec = newDecoder(defaultHeaderTable, int(cfg.MaxHeaderListSize), func(f hpack.HeaderField) {
+		// Decoding goes on past the limit to keep the HPACK table in sync, but nothing more is kept.
+		if c.fieldsSize += len(f.Name) + len(f.Value) + 32; c.fieldsSize > int(cfg.MaxHeaderListSize) {
+			c.fields = c.fields[:0]
+			return
+		}
 		c.fields = append(c.fields, f)
 	})
 
@@ -620,7 +627,7 @@ func (c *ClientConn) onHeaders(h frameHeader, p []byte) error {
 		return connError{ErrCodeProtocol, "HEADERS on a server stream"}
 	}
 	c.blockID, c.blockN, c.blockES = h.streamID, 0, h.has(flagEndStream)
-	c.fields = c.fields[:0]
+	c.fields, c.fieldsSize = c.fields[:0], 0
 	return c.onHeaderFragment(h, frag)
 }
 
@@ -649,6 +656,11 @@ func (c *ClientConn) endHeaderBlock(id uint32) error {
 	defer c.mu.Unlock()
 	s := c.streams[id]
 	if s == nil || s.err != nil || s.done {
+		return nil
+	}
+	if c.fieldsSize > int(c.cfg.MaxHeaderListSize) {
+		s.fail(errHeaderTooLarge)
+		c.resetLocked(id, ErrCodeCancel)
 		return nil
 	}
 	if !s.gotHeaders {

@@ -1,6 +1,7 @@
 package qilat
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -13,6 +14,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 func insecureTransport(t *testing.T, configure ...func(*Transport)) (*Client, *Transport) {
@@ -316,5 +320,97 @@ func TestClientSharedDialFailure(t *testing.T) {
 	// Serialized retries would take about 10 × 50 ms.
 	if d := time.Since(start); d > 400*time.Millisecond {
 		t.Fatalf("waiters took %v; they should dial in parallel after the shared dial fails", d)
+	}
+}
+
+// TestClientH2ResponseHeaderLimit answers with a block of one-byte references to a 4 KB table entry, which
+// decodes to far more than MaxResponseHeaderBytes. The stream must fail without the connection losing HPACK
+// sync, so the next response, which references the same entry, still decodes.
+func TestClientH2ResponseHeaderLimit(t *testing.T) {
+	checkGoroutines(t)
+	big := hpack.HeaderField{Name: "x-big", Value: strings.Repeat("a", 4000)}
+	var hb bytes.Buffer
+	enc := hpack.NewEncoder(&hb)
+	block := func(refs int) []byte {
+		hb.Reset()
+		_ = enc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
+		for range refs {
+			_ = enc.WriteField(big)
+		}
+		return bytes.Clone(hb.Bytes())
+	}
+	blocks := [][]byte{block(1000), block(1)}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		sc, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = sc.Close() }()
+		if _, err := io.ReadFull(sc, make([]byte, len(http2.ClientPreface))); err != nil {
+			return
+		}
+		fr := http2.NewFramer(sc, sc)
+		_ = fr.WriteSettings()
+		for {
+			f, err := fr.ReadFrame()
+			if err != nil {
+				return
+			}
+			switch f := f.(type) {
+			case *http2.SettingsFrame:
+				if !f.IsAck() {
+					_ = fr.WriteSettingsAck()
+				}
+			case *http2.HeadersFrame:
+				if len(blocks) == 0 {
+					return
+				}
+				_ = fr.WriteHeaders(http2.HeadersFrameParam{StreamID: f.StreamID, BlockFragment: blocks[0],
+					EndHeaders: true, EndStream: true})
+				blocks = blocks[1:]
+			}
+		}
+	}()
+	c, _ := newTestClient(t, func(tr *Transport) { tr.H2C = true })
+	url := "http://" + ln.Addr().String() + "/"
+	resp := AcquireResponse()
+	defer ReleaseResponse(resp)
+	if err := c.Get(url, resp); err == nil || !strings.Contains(err.Error(), "MaxHeaderListSize") {
+		t.Fatalf("oversized header block: %v", err)
+	}
+	if err := c.Get(url, resp); err != nil || resp.Header.Get("X-Big") != big.Value {
+		t.Fatalf("next response on the connection: %v, x-big of %d bytes", err, len(resp.Header.Get("X-Big")))
+	}
+}
+
+// TestClientRedirectDowngradeDropsCredentials follows https://a.test/ to http://a.test/: same host, but the
+// credentials would cross the network in cleartext.
+func TestClientRedirectDowngradeDropsCredentials(t *testing.T) {
+	checkGoroutines(t)
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "auth="+r.Header.Get("Authorization")+" cookie="+r.Header.Get("Cookie"))
+	}))
+	defer plain.Close()
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://a.test/", http.StatusFound)
+	}))
+	defer secure.Close()
+	c, _ := insecureTransport(t, func(tr *Transport) {
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			target := plain.Listener.Addr().String()
+			if addr == "a.test:443" {
+				target = secure.Listener.Addr().String()
+			}
+			return (&net.Dialer{}).DialContext(ctx, network, target)
+		}
+	})
+	_, body := do(t, c, "GET", "https://a.test/", "", [2]string{"Authorization", "secret"}, [2]string{"Cookie", "s=1"})
+	if body != "auth= cookie=" {
+		t.Fatalf("after https to http redirect: %q", body)
 	}
 }

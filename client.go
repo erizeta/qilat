@@ -152,12 +152,12 @@ func (r *Request) prepareRedirect(status int, loc []byte) (bool, error) {
 		r.header.Del("content-type")
 		r.header.Del("content-length")
 	}
-	oldHost := string(r.uri.Host())
+	oldHost, wasHTTPS := string(r.uri.Host()), string(r.uri.Scheme()) == "https"
 	if err := r.SetRequestURI(next.String()); err != nil {
 		return false, err
 	}
-	// Credentials meant for one host must not be sent to another.
-	if string(r.uri.Host()) != oldHost {
+	// Credentials meant for one host must not be sent to another, nor in cleartext after a downgrade.
+	if string(r.uri.Host()) != oldHost || wasHTTPS && string(r.uri.Scheme()) != "https" {
 		r.header.Del("authorization")
 		r.header.Del("www-authenticate")
 		r.header.Del("cookie")
@@ -323,7 +323,8 @@ func (resp *Response) ReadBody() ([]byte, error) {
 	}
 	buf := bytes.NewBuffer(resp.buf[:0])
 	if resp.contentLength > 0 {
-		buf.Grow(int(resp.contentLength))
+		// The declared length is the server's word; grow further only as bytes arrive.
+		buf.Grow(int(min(resp.contentLength, 1<<20)))
 	}
 	src := io.Reader(resp.Body)
 	if limit > 0 {

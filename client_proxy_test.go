@@ -132,3 +132,17 @@ func TestClientProxyRefused(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+func TestClientRejectsUnsupportedProxyScheme(t *testing.T) {
+	for _, scheme := range []string{"https", "socks5"} {
+		c, _ := newTestClient(t, func(tr *Transport) {
+			tr.Proxy = func(*Request) (*url.URL, error) { return &url.URL{Scheme: scheme, Host: "127.0.0.1:1"}, nil }
+		})
+		resp := AcquireResponse()
+		err := c.Get("http://example.test/", resp)
+		ReleaseResponse(resp)
+		if err == nil || !strings.Contains(err.Error(), "unsupported proxy scheme") {
+			t.Fatalf("%s proxy: %v", scheme, err)
+		}
+	}
+}

@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 // h2cClient returns a net/http client speaking cleartext HTTP/2 with prior knowledge.
@@ -307,5 +311,44 @@ func TestHTTP2RequestTrailersAndCookies(t *testing.T) {
 	_ = resp.Body.Close()
 	if string(body) != "data|a=1; b=2" {
 		t.Fatalf("body %q", body)
+	}
+}
+
+// TestH2WriteTimeoutStalledClient opens large flow-control windows, then stops reading. The handler's writes
+// must fail within WriteTimeout instead of blocking the connection until the client reads again.
+func TestH2WriteTimeoutStalledClient(t *testing.T) {
+	failed := make(chan time.Duration, 1)
+	ts := startServer(t, func(w ResponseWriter, _ *Request) {
+		start := time.Now()
+		chunk := make([]byte, 64<<10)
+		for range 2048 {
+			if _, err := w.Write(chunk); err != nil {
+				failed <- time.Since(start)
+				return
+			}
+		}
+	}, func(s *Server) { s.H2C, s.WriteTimeout = true, 200*time.Millisecond })
+	nc, err := net.Dial("tcp", ts.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = nc.Close() }()
+	_, _ = io.WriteString(nc, http2.ClientPreface)
+	fr := http2.NewFramer(nc, nc)
+	_ = fr.WriteSettings(http2.Setting{ID: http2.SettingInitialWindowSize, Val: 1<<31 - 1})
+	_ = fr.WriteWindowUpdate(0, 1<<31-1-65535)
+	var hb bytes.Buffer
+	enc := hpack.NewEncoder(&hb)
+	for _, kv := range [][2]string{{":method", "GET"}, {":scheme", "http"}, {":path", "/"}, {":authority", "x"}} {
+		_ = enc.WriteField(hpack.HeaderField{Name: kv[0], Value: kv[1]})
+	}
+	_ = fr.WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: hb.Bytes(), EndHeaders: true, EndStream: true})
+	select {
+	case d := <-failed:
+		if d > 2*time.Second {
+			t.Fatalf("write failed after %v", d)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler still blocked writing to a client that stopped reading")
 	}
 }

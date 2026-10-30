@@ -58,6 +58,7 @@ var (
 // Conn serves HTTP/2 on one connection.
 type Conn struct {
 	nc       net.Conn
+	dw       deadlineWriter
 	cfg      *Config
 	remote   net.Addr
 	tlsState *tls.ConnectionState
@@ -367,6 +368,7 @@ func (c *Conn) onSettings(h frameHeader, p []byte) error {
 	if err := c.spendCalm(); err != nil {
 		return err
 	}
+	window := int64(-1)
 	for ; len(p) > 0; p = p[6:] {
 		id, v := settingID(uint16(p[0])<<8|uint16(p[1])), be32(p[2:])
 		switch id {
@@ -378,18 +380,8 @@ func (c *Conn) onSettings(h frameHeader, p []byte) error {
 			if v > maxWindow {
 				return connError{ErrCodeFlowControl, "SETTINGS_INITIAL_WINDOW_SIZE too large"}
 			}
-			c.mu.Lock()
-			delta := int64(v) - c.peerWindow
-			c.peerWindow = int64(v)
-			for _, st := range c.streams {
-				st.sendWindow += delta
-				if st.sendWindow > maxWindow {
-					c.mu.Unlock()
-					return connError{ErrCodeFlowControl, "stream window overflow"}
-				}
-			}
-			c.flow.Broadcast()
-			c.mu.Unlock()
+			// Applied once below: a frame can repeat it thousands of times, each a walk over every stream.
+			window = int64(v)
 		case settingMaxFrameSize:
 			if v < minMaxFrameSize || v > maxMaxFrameSize {
 				return connError{ErrCodeProtocol, "invalid SETTINGS_MAX_FRAME_SIZE"}
@@ -400,6 +392,20 @@ func (c *Conn) onSettings(h frameHeader, p []byte) error {
 			c.enc.setMaxSize(v)
 			c.sched.unlock()
 		}
+	}
+	if window >= 0 {
+		c.mu.Lock()
+		delta := window - c.peerWindow
+		c.peerWindow = window
+		for _, st := range c.streams {
+			st.sendWindow += delta
+			if st.sendWindow > maxWindow {
+				c.mu.Unlock()
+				return connError{ErrCodeFlowControl, "stream window overflow"}
+			}
+		}
+		c.flow.Broadcast()
+		c.mu.Unlock()
 	}
 	return c.writeControl(c.ctrl, func(b []byte) []byte { return appendFrameHeader(b, 0, frameSettings, flagAck, 0) })
 }
@@ -895,7 +901,12 @@ func (c *Conn) write(p []byte) {
 		return
 	}
 	if c.bw == nil {
-		c.bw = getWriter(c.nc)
+		if c.cfg.WriteTimeout > 0 {
+			c.dw = deadlineWriter{c.nc, c.cfg.WriteTimeout}
+			c.bw = getWriter(&c.dw)
+		} else {
+			c.bw = getWriter(c.nc)
+		}
 	}
 	if _, err := c.bw.Write(p); err != nil {
 		c.failWrite(err)
@@ -1294,6 +1305,20 @@ func getReader(r io.Reader) *bufio.Reader {
 func putReader(br *bufio.Reader) {
 	br.Reset(nil)
 	readerPool.Put(br)
+}
+
+// deadlineWriter bounds each socket write by WriteTimeout. Writers share the connection under one lock, so a
+// client that stops reading would otherwise stall every stream, and the stream timers waiting for that lock.
+type deadlineWriter struct {
+	nc net.Conn
+	d  time.Duration
+}
+
+func (w *deadlineWriter) Write(p []byte) (int, error) {
+	if err := w.nc.SetWriteDeadline(time.Now().Add(w.d)); err != nil {
+		return 0, err
+	}
+	return w.nc.Write(p)
 }
 
 func getWriter(w io.Writer) *bufio.Writer {

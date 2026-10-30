@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"slices"
@@ -143,6 +144,10 @@ func (t *Transport) RoundTrip(req *Request, resp *Response) error {
 		var err error
 		if proxy, err = t.Proxy(req); err != nil {
 			return err
+		}
+		// An https proxy would get the CONNECT and its credentials in cleartext, and socks5 is not HTTP.
+		if proxy != nil && proxy.Scheme != "http" {
+			return fmt.Errorf("qilat: unsupported proxy scheme %q", proxy.Scheme)
 		}
 	}
 	creq := exchange.ClientRequest{
@@ -593,6 +598,15 @@ func (hc *hostConns) removeH2(c *h2.ClientConn) {
 	hc.mu.Unlock()
 }
 
+// resetTimerLocked reschedules expireIdle. closeIdle may have dropped the timer while this run waited for mu.
+func (hc *hostConns) resetTimerLocked(d time.Duration) {
+	if hc.timer == nil {
+		hc.timer = time.AfterFunc(d, hc.expireIdle)
+		return
+	}
+	hc.timer.Reset(d)
+}
+
 func (hc *hostConns) startTimerLocked() {
 	if hc.timer == nil {
 		hc.timer = time.AfterFunc(orDefault(hc.t.IdleConnTimeout, DefaultIdleConnTimeout), hc.expireIdle)
@@ -660,9 +674,9 @@ func (hc *hostConns) expireIdle() {
 	h3Idle := h3c != nil && h3c.IdleFor(now) >= timeout
 	switch {
 	case len(keep) > 0:
-		hc.timer.Reset(timeout - now.Sub(keep[0].since))
+		hc.resetTimerLocked(timeout - now.Sub(keep[0].since))
 	case len(hc.h2) > len(idleH2), h3c != nil && !h3Idle:
-		hc.timer.Reset(timeout)
+		hc.resetTimerLocked(timeout)
 	default:
 		hc.timer = nil
 	}
@@ -684,7 +698,8 @@ func (hc *hostConns) closeIdle() {
 	idle := hc.idle
 	hc.idle = nil
 	hc.total -= len(idle)
-	if hc.timer != nil {
+	// Busy HTTP/2 and HTTP/3 connections stay open, so they keep the timer that closes them once idle.
+	if hc.timer != nil && len(hc.h2) == 0 && hc.h3 == nil {
 		hc.timer.Stop()
 		hc.timer = nil
 	}

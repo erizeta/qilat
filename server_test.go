@@ -901,3 +901,24 @@ func selfSignedCert(t *testing.T) tls.Certificate {
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
+
+// TestReadTimeoutKeepsContext checks that ReadTimeout bounds reading the request, not the handler: the
+// disconnect watcher must not take the expired read deadline for a closed connection.
+func TestReadTimeoutKeepsContext(t *testing.T) {
+	ts := startServer(t, func(w ResponseWriter, r *Request) {
+		select {
+		case <-r.Context().Done():
+			_, _ = io.WriteString(w, "canceled")
+		case <-time.After(500 * time.Millisecond):
+			_, _ = io.WriteString(w, "ok")
+		}
+	}, func(s *Server) { s.ReadTimeout = 100 * time.Millisecond })
+	resp, err := newClient(t).Get(ts.url("/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if b, _ := io.ReadAll(resp.Body); string(b) != "ok" {
+		t.Fatalf("handler saw %q", b)
+	}
+}

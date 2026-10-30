@@ -28,9 +28,11 @@ type stream struct {
 	sec []byte // field section being encoded
 	out []byte // frames being written
 
-	// cancelMu orders a stream reset that cancels the exchange against its release to the pool.
+	// cancelMu orders a stream reset that cancels the exchange against its release to the pool. gen tells a
+	// late reset callback from an earlier request apart, since streams and exchanges are both reused.
 	cancelMu sync.Mutex
 	live     exchange.Exchange
+	gen      uint64
 
 	body body
 	sink sink
@@ -122,8 +124,10 @@ func (s *stream) serve() error {
 	// The stream's context ends when the client stops reading the response (STOP_SENDING) or the stream is reset.
 	s.cancelMu.Lock()
 	s.live = x
+	s.gen++
+	gen := s.gen
 	s.cancelMu.Unlock()
-	stop := context.AfterFunc(s.str.Context(), s.cancel)
+	stop := context.AfterFunc(s.str.Context(), func() { s.cancel(gen) })
 	serveErr := x.Serve(&s.sink)
 	stop()
 	s.cancelMu.Lock()
@@ -143,9 +147,9 @@ func (s *stream) serve() error {
 	return nil
 }
 
-func (s *stream) cancel() {
+func (s *stream) cancel(gen uint64) {
 	s.cancelMu.Lock()
-	if s.live != nil {
+	if s.live != nil && s.gen == gen {
 		s.live.Cancel()
 	}
 	s.cancelMu.Unlock()

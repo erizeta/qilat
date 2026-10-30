@@ -22,7 +22,11 @@ var (
 	errResponseTooLarge = errors.New("h1: HTTP response header too large")
 	errConnBusy         = errors.New("h1: connection is busy")
 	errRespBodyClosed   = errors.New("h1: response body read after close")
+
+	errTooManyInformational = errors.New("h1: too many 1xx informational responses")
 )
+
+const maxInformational = 5
 
 // ClientConfig holds the client settings for HTTP/1.1 connections, with defaults already resolved.
 type ClientConfig struct {
@@ -124,7 +128,10 @@ func (c *ClientConn) fail(err error, notSent bool) error {
 // finish ends the round trip once the response body is done, and hands the connection back.
 func (c *ClientConn) finish(reusable bool) {
 	if c.stop != nil {
-		c.stop()
+		// A cancel callback that already started may still poison the connection's deadline.
+		if !c.stop() {
+			reusable = false
+		}
 		c.stop = nil
 	}
 	if c.writing {
@@ -142,7 +149,8 @@ func (c *ClientConn) finish(reusable bool) {
 		}
 		c.writing = false
 	}
-	if c.canceled.Load() || c.broken {
+	// Bytes after a complete response answer no request; the next caller must not read them as its own.
+	if c.canceled.Load() || c.broken || c.br.Buffered() > 0 {
 		reusable = false
 	}
 	c.ctx = nil
@@ -283,12 +291,16 @@ func (c *ClientConn) readResponse(req *exchange.ClientRequest, resp exchange.Cli
 			return err
 		}
 	}
-	for {
+	for informational := 0; ; {
 		status, info, err := c.readHeader(resp)
 		if err != nil {
 			return err
 		}
 		if status >= 100 && status < 200 && status != 101 {
+			// Bounded as in net/http, so a server cannot hold the request forever with 1xx responses.
+			if informational++; informational > maxInformational {
+				return errTooManyInformational
+			}
 			continue
 		}
 		if c.cfg.ResponseHeaderTimeout > 0 && !c.canceled.Load() {
@@ -332,6 +344,7 @@ func (c *ClientConn) readHeader(resp exchange.ClientResponse) (int, respInfo, er
 	}
 	info.minor = minor
 	info.keepAlive = minor == 1
+	te := false
 	for {
 		line, err := c.lr.readLine()
 		if err != nil {
@@ -356,7 +369,10 @@ func (c *ClientConn) readHeader(resp exchange.ClientResponse) (int, respInfo, er
 			}
 			info.contentLength = n
 		case equalFold(name, "transfer-encoding"):
-			info.chunked = hasToken(value, "chunked")
+			// Only a final coding of chunked delimits the body; later lines extend the list.
+			te = true
+			last := value[bytes.LastIndexByte(value, ',')+1:]
+			info.chunked = equalFold(trimOWS(last), "chunked")
 		case equalFold(name, "connection"):
 			if hasToken(value, "close") {
 				info.keepAlive = false
@@ -369,6 +385,14 @@ func (c *ClientConn) readHeader(resp exchange.ClientResponse) (int, respInfo, er
 				return 0, info, err
 			}
 		}
+	}
+	if te {
+		// Transfer-Encoding overrides Content-Length, but a response with both, or with Transfer-Encoding
+		// over HTTP/1.0, has suspect framing, so the connection is not reused (RFC 9112 section 6.3).
+		if info.contentLength >= 0 || minor == 0 {
+			info.keepAlive = false
+		}
+		info.contentLength = -1
 	}
 	return status, info, nil
 }
