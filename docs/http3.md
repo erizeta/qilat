@@ -112,3 +112,33 @@ curl --http3-only -sI https://example.com/            # needs a curl built with 
 ```
 
 In Chrome, open DevTools, Network, and add the Protocol column: requests after the first show `h3`.
+
+On a development machine with a certificate from a local CA such as mkcert, Chrome may keep using `h2` even
+though it received the `Alt-Svc` header. To check the server itself, start Chrome with HTTP/3 forced for the
+origin, in a separate profile:
+
+```sh
+open -na "Google Chrome" --args --user-data-dir=/tmp/chrome-h3 --origin-to-force-quic-on=localhost:8443 https://localhost:8443
+```
+
+curl can check the `Alt-Svc` switch without a browser: with a cache file, the first request uses HTTP/2 and
+stores the advertisement, and the second uses HTTP/3.
+
+```sh
+curl -sk --alt-svc /tmp/altsvc.txt -o /dev/null -w '%{http_version}\n' https://localhost:8443   # 2
+curl -sk --alt-svc /tmp/altsvc.txt -o /dev/null -w '%{http_version}\n' https://localhost:8443   # 3
+```
+
+## Interoperability
+
+Tested on 2026-10-30 with qilat at v0.1.0 (quic-go v0.64.1) on macOS, serving the README's `ListenAndServeTLS`
+quick start on port 8443 with a certificate from mkcert.
+
+| Client | Result |
+|---|---|
+| curl 8.23.0 (ngtcp2 1.25.0, nghttp3 1.18.0), `--http1.1`, `--http2`, `--http3-only` | ✅ Each protocol served |
+| curl 8.23.0 with `--alt-svc` cache | ✅ Second request switches to HTTP/3; cached for the advertised `ma` (24 hours) |
+| Chrome 156.0.8078.74 with `--origin-to-force-quic-on` | ✅ `h3` |
+| Chrome 156.0.8078.74, discovery through `Alt-Svc` only | ⚠️ Stayed on `h2` with the local-CA certificate; see above |
+| quic-go v0.64.1 `http3.Transport` against the qilat server (automated: `http3_test.go`, `examples/std-middleware`, benchmarks) | ✅ |
+| qilat `Client` against quic-go's `http3.Server`, found through `Alt-Svc` (automated: `TestClientH3AgainstReference`) | ✅ |
