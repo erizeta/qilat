@@ -40,6 +40,62 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## M8: final comparison (v0.1.0)
+
+Rerun of every comparison after the M8 hardening changes, on the same machine as M2 (Apple M5, 10 cores,
+macOS 26.4, Go 1.27.3, fasthttp v1.77.0, quic-go v0.64.1), `-benchtime 1s -count 5`, medians. Raw output:
+[`m8-h1.txt`](results/m8-h1.txt), [`m8-h2c.txt`](results/m8-h2c.txt), [`m8-h3.txt`](results/m8-h3.txt),
+[`m8-client.txt`](results/m8-client.txt).
+
+```sh
+cd benchmarks
+go test -run '^$' -bench 'BenchmarkH1$/.*/.*/(inmem|pipeline16)' -benchmem -count 5 .
+go test -run '^$' -bench 'BenchmarkH2C$|BenchmarkH3$|BenchmarkClientH1$' -benchmem -count 5 .
+```
+
+### HTTP/1.1 server, time per request (lower is better)
+
+| Scenario | Mode | net/http | fasthttp | qilat | qilat allocs |
+|---|---|---|---|---|---|
+| plaintext | inmem | 964 ns | 247 ns | **235 ns** | 0 |
+| json-1kb | inmem | 972 ns | 254 ns | **246 ns** | 0 |
+| headers-20 | inmem | 1.87 µs | **357 ns** | 414 ns | 0 |
+| upload-64kb | inmem | 1.16 µs | 881 ns | **747 ns** | 1 (handler) |
+| plaintext | pipeline16 | 2.04 µs | 379 ns | **343 ns** | 0 |
+| json-1kb | pipeline16 | 1.99 µs | 773 ns | **708 ns** | 0 |
+| headers-20 | pipeline16 | 2.96 µs | 686 ns | **517 ns** | 0 |
+
+### HTTP/2 (H2C, net/http client) and HTTP/3 (quic-go client)
+
+| Scenario | net/http H2C | qilat H2C | quic-go/http3 | qilat H3 |
+|---|---|---|---|---|
+| plaintext | 12.4 µs | **8.1 µs** | 16.0 µs | **11.3 µs** |
+| json-1kb | 15.6 µs | **11.0 µs** | 19.8 µs | **12.1 µs** |
+| headers-20 | 21.5 µs | **13.9 µs** | 25.0 µs | **14.4 µs** |
+| upload-64kb | 48.2 µs | **28.8 µs** | 259 µs | 254 µs |
+
+Allocations include the client: H2C 86–169 (net/http) against 53–106 (qilat), H3 199–883 (quic-go/http3)
+against 131–769 (qilat).
+
+### HTTP/1.1 client
+
+| Scenario | net/http | fasthttp | qilat | allocs (net/http / fasthttp / qilat) |
+|---|---|---|---|---|
+| plaintext | 6.15 µs | **5.64 µs** | 5.75 µs | 48 / 0 / 0 |
+| json-1kb | 6.09 µs | 5.77 µs | **5.71 µs** | 48 / 0 / 0 |
+| headers-20 | 7.26 µs | **5.70 µs** | 5.74 µs | 78 / 0 / 0 |
+| upload-64kb | 13.0 µs | **9.23 µs** | 9.32 µs | 58 / 1 / 1 |
+
+### Observations
+
+- Numbers match the per-milestone results below within noise: the M8 fixes (response header limits in the
+  clients, write deadlines for HTTP/2 `WriteTimeout`, stream cancellation bookkeeping in HTTP/3) are off the
+  hot path or cost no allocations.
+- `headers-20` in `inmem` is the one server scenario where fasthttp stays ahead (~16%): qilat validates,
+  lowercases, and copies each header field.
+- The h2load results in [M4](#m4-http2-server) were not rerun; the HTTP/2 server code they measured changed only
+  in SETTINGS handling and in the `WriteTimeout` path, which h2load does not use.
+
 ## M5: HTTP/3 server
 
 `BenchmarkH3` serves the same scenarios with qilat and the quic-go/http3 server, both on quic-go v0.64.1, and

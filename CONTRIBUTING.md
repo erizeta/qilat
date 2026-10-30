@@ -5,7 +5,7 @@ Thanks for your interest in qilat. This document explains how to propose changes
 ## Before you start
 
 - For anything bigger than a small fix, open an issue first so the approach can be discussed.
-- Check the [roadmap](README.md#roadmap) to see where the change fits.
+- Check [API stability](README.md#api-stability) and the [changelog](CHANGELOG.md) to see where the change fits.
 - Security issues go through [SECURITY.md](SECURITY.md), not public issues.
 
 ## Development setup
@@ -38,7 +38,10 @@ golangci-lint and govulncheck are run with `go run` at pinned versions, so no gl
   [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat)).
 - Do not use standard library APIs newer than the minimum Go version in `go.mod`; CI tests on it.
 - Make sure `make lint race` passes locally.
-- Update `README.md` when you add or change user-facing behavior.
+- Update `README.md` when you add or change user-facing behavior. Every Go snippet in the README is also a
+  program in `examples/readme`, and a test there fails when the two differ.
+- Add an entry under `[Unreleased]` in `CHANGELOG.md` for user-facing changes, with migration notes for
+  breaking ones.
 
 ## Commit messages
 

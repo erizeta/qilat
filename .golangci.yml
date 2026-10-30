@@ -17,6 +17,11 @@ linters:
         linters:
           - revive
         text: unused-parameter
+      # README snippets are kept verbatim, without package comments.
+      - path: examples/readme/
+        linters:
+          - revive
+        text: package-comments
       # HTTP/2 and HTTP/3 framing, HPACK, and QPACK pack integers into bytes on purpose; values are range-checked first.
       - path: internal/h[23]/
         linters:

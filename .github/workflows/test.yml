@@ -29,6 +29,9 @@ jobs:
       - name: Test net/http middleware interop (examples/std-middleware)
         working-directory: examples/std-middleware
         run: go test -race ./...
+      - name: README snippets compile and match (examples/readme)
+        working-directory: examples/readme
+        run: go vet ./... && go test ./...
       - name: Benchmarks compile and pass sanity checks
         working-directory: benchmarks
         run: go test -run . -bench '^$' ./...

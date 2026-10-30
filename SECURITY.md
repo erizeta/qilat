@@ -2,7 +2,8 @@
 
 ## Supported versions
 
-qilat has no stable release yet. Until v1.0.0, only the latest released minor version receives security fixes.
+Until v1.0.0, only the latest released minor version (v0.x) receives security fixes. Fixes are released as patch
+versions and announced in GitHub Security Advisories and the [changelog](CHANGELOG.md).
 
 ## Reporting a vulnerability
 

@@ -34,5 +34,10 @@ jobs:
         with:
           version: v2.15.0
           working-directory: examples/std-middleware
+      - name: golangci-lint (examples/readme)
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+          working-directory: examples/readme
       - name: govulncheck
         run: make vuln
