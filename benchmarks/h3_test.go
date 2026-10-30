@@ -48,7 +48,7 @@ func startQilatH3(tb testing.TB, pc net.PacketConn, cert tls.Certificate) func()
 	srv := &qilat.Server{
 		Handler:   qilat.HandlerFunc(qilatHandler),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.ServeQUIC(pc) }()

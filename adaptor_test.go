@@ -33,7 +33,7 @@ func startAllProtocols(t *testing.T, h Handler) []protoClient {
 	srv := &Server{
 		Handler:   h,
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	ln := listenLocal(t)
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")

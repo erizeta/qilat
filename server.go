@@ -72,8 +72,8 @@ type Server struct {
 	// BaseContext returns the base context for requests from ln, which is nil for HTTP/3. If BaseContext is nil,
 	// context.Background is used.
 	BaseContext func(ln net.Listener) context.Context
-	// ErrorLog receives handler panics and connection errors. If nil, slog.Default is used.
-	ErrorLog *slog.Logger
+	// Logger receives handler panics and connection errors. If nil, slog.Default is used.
+	Logger *slog.Logger
 
 	mu           sync.Mutex
 	listeners    map[io.Closer]struct{}
@@ -405,8 +405,8 @@ func timeoutOr(d, def time.Duration) time.Duration {
 }
 
 func (s *Server) logger() *slog.Logger {
-	if s.ErrorLog != nil {
-		return s.ErrorLog
+	if s.Logger != nil {
+		return s.Logger
 	}
 	return slog.Default()
 }

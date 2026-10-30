@@ -87,7 +87,7 @@ Or keep those routes on `FromStd`, where everything in net/http works.
 | none | `MaxRequestBodySize` (4 MiB by default), `MaxConcurrentConns` |
 | `Protocols` | `DisableHTTP2`, `H2C`, `DisableHTTP3` |
 | `HTTP2` | `HTTP2` (`qilat.HTTP2Config`) |
-| `ErrorLog` (`*log.Logger`) | `ErrorLog` (`*slog.Logger`) |
+| `ErrorLog` (`*log.Logger`) | `Logger` (`*slog.Logger`) |
 | `ListenAndServeTLS(cert, key)` | `ListenAndServeTLS(addr, cert, key)`, which also serves HTTP/3 over UDP |
 | `Shutdown`, `Close`, `Serve`, `ServeTLS` | the same |
 

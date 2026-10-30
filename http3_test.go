@@ -30,7 +30,7 @@ func startQUIC(t *testing.T, h HandlerFunc, configure ...func(*Server)) (*Server
 	srv := &Server{
 		Handler:   h,
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	for _, f := range configure {
 		f(srv)
@@ -160,7 +160,7 @@ func TestSameResponseOnAllProtocols(t *testing.T) {
 	srv := &Server{
 		Handler:   mux,
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	ln := listenLocal(t)
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -356,7 +356,7 @@ func TestListenAndServeTLSServesAllProtocols(t *testing.T) {
 	}
 	srv := &Server{Handler: HandlerFunc(func(w ResponseWriter, r *Request) { _, _ = w.WriteString(r.Proto()) }),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
-		ErrorLog:  slog.New(slog.NewTextHandler(io.Discard, nil))}
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil))}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServeTLS(addr, "", "") }()
 	insecure := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // self-signed test certificate
