@@ -206,3 +206,115 @@ func TestClientH2C(t *testing.T) {
 		t.Fatalf("without H2C: %s", resp.Proto())
 	}
 }
+
+// countingTLSServer starts an HTTPS server that counts its connections.
+func countingTLSServer(t *testing.T, h2 bool, h http.HandlerFunc) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(h)
+	srv.EnableHTTP2 = h2
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv, &conns
+}
+
+func burst(t *testing.T, c *Client, url string, n int) []error {
+	t.Helper()
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp := AcquireResponse()
+			defer ReleaseResponse(resp)
+			if errs[i] = c.Get(url, resp); errs[i] == nil {
+				_, errs[i] = resp.ReadBody()
+			}
+		}()
+	}
+	wg.Wait()
+	return errs
+}
+
+// TestClientFirstBurstSharesHTTP2Dial sends concurrent first requests to a new HTTPS host: they wait for
+// one connection instead of each opening its own.
+func TestClientFirstBurstSharesHTTP2Dial(t *testing.T) {
+	checkGoroutines(t)
+	srv, conns := countingTLSServer(t, true, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.Proto)
+	})
+	c, _ := insecureTransport(t)
+	for _, err := range burst(t, c, srv.URL, 20) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := conns.Load(); n != 1 {
+		t.Fatalf("%d connections for a first burst to an HTTP/2 host", n)
+	}
+}
+
+func TestClientFirstBurstToHTTP1Host(t *testing.T) {
+	checkGoroutines(t)
+	srv, conns := countingTLSServer(t, false, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = io.WriteString(w, r.Proto)
+	})
+	c, tr := insecureTransport(t)
+	for _, err := range burst(t, c, srv.URL, 10) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := conns.Load(); n < 2 {
+		t.Fatalf("%d connections: waiters did not dial their own once the host spoke HTTP/1.1", n)
+	}
+	hc := tr.hostConns("https", []byte(strings.TrimPrefix(srv.URL, "https://")), nil)
+	hc.mu.Lock()
+	proto := hc.proto
+	hc.mu.Unlock()
+	if proto != protoH1 {
+		t.Fatalf("host protocol %d, want HTTP/1.1", proto)
+	}
+}
+
+// TestClientSharedDialFailure fails the shared first dial: only its own request fails, and the waiters
+// dial for themselves at once instead of one after another.
+func TestClientSharedDialFailure(t *testing.T) {
+	checkGoroutines(t)
+	srv, _ := countingTLSServer(t, true, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	})
+	var dials atomic.Int32
+	var d net.Dialer
+	c, _ := insecureTransport(t, func(tr *Transport) {
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if dials.Add(1) == 1 {
+				time.Sleep(50 * time.Millisecond) // let the burst queue up behind this dial
+				return nil, errors.New("first dial fails")
+			}
+			time.Sleep(50 * time.Millisecond)
+			return d.DialContext(ctx, network, addr)
+		}
+	})
+	start := time.Now()
+	failed := 0
+	for _, err := range burst(t, c, srv.URL, 10) {
+		if err != nil {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("%d requests failed, want only the one whose dial failed", failed)
+	}
+	// Serialized retries would take about 10 × 50 ms.
+	if d := time.Since(start); d > 400*time.Millisecond {
+		t.Fatalf("waiters took %v; they should dial in parallel after the shared dial fails", d)
+	}
+}

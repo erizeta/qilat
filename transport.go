@@ -217,8 +217,14 @@ func (t *Transport) hostConns(scheme string, authority []byte, proxy *url.URL) *
 		t.hosts = make(map[connKey]*hostConns)
 	}
 	hc := &hostConns{t: t, key: key, proxy: proxy}
-	// With prior knowledge the first connection is HTTP/2, so concurrent first requests share it.
-	hc.knownH2 = t.H2C && scheme == "http" && proxy == nil
+	switch {
+	case t.H2C && scheme == "http" && proxy == nil:
+		hc.proto = protoH2 // prior knowledge
+	case scheme == "https" && !t.DisableHTTP2:
+		hc.proto = protoUnknown // ALPN decides on the first connection
+	default:
+		hc.proto = protoH1
+	}
 	t.hosts[key] = hc
 	return hc
 }
@@ -424,10 +430,26 @@ type hostConns struct {
 	waiters []chan struct{}
 	timer   *time.Timer
 	h2      []*h2.ClientConn
-	knownH2 bool          // the host negotiated HTTP/2 before
-	h2Dial  chan struct{} // closed when an HTTP/2 dial in progress ends
+	proto   hostProto
+	dialing *sharedDial // a dial other requests wait for instead of dialing their own
 	h3      *h3.ClientConn
 	h3Dial  chan struct{}
+}
+
+// hostProto is what a host is known to speak over TCP.
+type hostProto uint8
+
+const (
+	protoUnknown hostProto = iota // HTTPS before the first handshake
+	protoH1
+	protoH2
+)
+
+// sharedDial is a connection being opened while the host may speak HTTP/2, whose one connection would
+// serve every request waiting for it.
+type sharedDial struct {
+	done   chan struct{}
+	failed bool // set before done is closed
 }
 
 type idleConn struct {
@@ -457,6 +479,7 @@ func (hc *hostConns) roundTrip(ctx context.Context, req *exchange.ClientRequest,
 // waiting while MaxConnsPerHost HTTP/1.1 connections are in use.
 func (hc *hostConns) getConn(ctx context.Context) (*h1.ClientConn, *h2.ClientConn, error) {
 	limit := hc.t.MaxConnsPerHost
+	share := true
 	for {
 		hc.mu.Lock()
 		for _, c := range hc.h2 {
@@ -465,10 +488,13 @@ func (hc *hostConns) getConn(ctx context.Context) (*h1.ClientConn, *h2.ClientCon
 				return nil, c, nil
 			}
 		}
-		if dialing := hc.h2Dial; dialing != nil {
+		if sd := hc.dialing; sd != nil && share {
 			hc.mu.Unlock()
 			select {
-			case <-dialing:
+			case <-sd.done:
+				// After a failed dial each waiter dials for itself, so one failure neither fails them all
+				// nor makes them retry one after another.
+				share = !sd.failed
 				continue
 			case <-ctx.Done():
 				return nil, nil, context.Cause(ctx)
@@ -481,21 +507,24 @@ func (hc *hostConns) getConn(ctx context.Context) (*h1.ClientConn, *h2.ClientCon
 			hc.mu.Unlock()
 			return c, nil, nil
 		}
-		if limit <= 0 || hc.total < limit || hc.knownH2 {
+		if limit <= 0 || hc.total < limit || hc.proto == protoH2 {
 			hc.total++
-			var dialDone chan struct{}
-			if hc.knownH2 {
+			var sd *sharedDial
+			if share && hc.proto != protoH1 && hc.dialing == nil {
 				// Requests that arrive meanwhile wait for this connection instead of dialing their own.
-				dialDone = make(chan struct{})
-				hc.h2Dial = dialDone
+				// For a host that turns out to speak only HTTP/1.1 this delays its first burst by one
+				// handshake; after that the host is known and nobody waits.
+				sd = &sharedDial{done: make(chan struct{})}
+				hc.dialing = sd
 			}
 			hc.mu.Unlock()
 			c1, c2, err := hc.dialConn(ctx)
-			if dialDone != nil {
+			if sd != nil {
 				hc.mu.Lock()
-				hc.h2Dial = nil
+				hc.dialing = nil
+				sd.failed = err != nil
 				hc.mu.Unlock()
-				close(dialDone)
+				close(sd.done)
 			}
 			return c1, c2, err
 		}
@@ -542,11 +571,14 @@ func (hc *hostConns) dialConn(ctx context.Context) (*h1.ClientConn, *h2.ClientCo
 		}
 		hc.mu.Lock()
 		hc.h2 = append(hc.h2, c)
-		hc.knownH2 = true
+		hc.proto = protoH2
 		hc.startTimerLocked()
 		hc.mu.Unlock()
 		return nil, c, nil
 	}
+	hc.mu.Lock()
+	hc.proto = protoH1
+	hc.mu.Unlock()
 	return h1.NewClientConn(nc, &hc.t.h1cfg, hc.release), nil, nil
 }
 

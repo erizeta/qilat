@@ -448,7 +448,8 @@ func main() {
 [`examples/client`](examples/client/main.go) does the same for any URL: `go run ./examples/client https://example.com/`.
 
 - `Transport` keeps HTTP/1.1 connections per host (`MaxConnsPerHost`, `MaxIdleConnsPerHost`, `IdleConnTimeout`)
-  and uses HTTP/2 when the server offers it through ALPN, multiplexing requests on one connection. `H2C: true`
+  and uses HTTP/2 when the server offers it through ALPN, multiplexing requests on one connection; a burst of
+  first requests to a new HTTPS host waits for that one connection instead of each opening its own. `H2C: true`
   sends plain `http://` requests over HTTP/2 with prior knowledge, for servers such as a qilat `Server` with `H2C`.
 - `DialContext` replaces the dialer for every protocol: it is called with `"tcp"`, and with `"udp"` for HTTP/3.
 - With `EnableHTTP3`, HTTPS requests switch to HTTP/3 once the host advertises it with `Alt-Svc` (cached for
