@@ -639,18 +639,26 @@ Unlike net/http, a zero value means a safe limit, not "unlimited". Set a field t
 
 | `Server` field | Zero value means |
 |---|---|
-| `ReadHeaderTimeout` | 10 s, also used for the TLS and QUIC handshakes |
+| `ReadHeaderTimeout` | 10 s, also used for the TLS and QUIC handshakes and for each HTTP/3 request stream |
 | `IdleTimeout` | 120 s between keep-alive requests, and the QUIC idle timeout |
 | `MaxHeaderBytes` | 64 KiB of request line and header (larger headers get 431) |
 | `MaxRequestBodySize` | 4 MiB (larger bodies get 413, or `qilat.ErrBodyTooLarge` while reading) |
+| `ReadStallTimeout` | 60 s waiting for more request body from a client that stopped sending |
+| `WriteStallTimeout` | 60 s waiting for a client that stopped accepting the response |
 | `ReadTimeout` | no limit, so slow uploads work |
 | `WriteTimeout` | no limit, so streaming responses work |
 | `MaxConcurrentConns` | no limit |
 | `HTTP2.MaxConcurrentStreams`, `HTTP3.MaxConcurrentStreams` | 250 concurrent requests per connection |
 
-`ReadTimeout` bounds reading the request, body included, and `WriteTimeout` writing the response. Both are off
-by default because a fixed limit breaks large uploads and long streams; set them when neither is expected.
-Behind a reverse proxy that enforces its own timeouts, the defaults are usually enough.
+The stall timeouts apply only while a handler waits for the client: a read waiting for body bytes, or a write
+waiting for the client to take data (at least 64 KiB per timeout). A slow upload or download that keeps moving,
+a long poll, and a server-sent event stream are not affected. When one expires, the read or write fails with an
+error wrapping `os.ErrDeadlineExceeded`, the request context is canceled, and the connection (HTTP/1.1) or
+stream (HTTP/2, HTTP/3) is closed.
+
+`ReadTimeout` bounds reading the whole request, body included, and `WriteTimeout` writing the whole response.
+Both are off by default because a fixed limit breaks large uploads and long streams; set them when neither is
+expected. When both a stall timeout and a total timeout are set, the sooner deadline applies.
 
 Other settings:
 

@@ -58,6 +58,8 @@ func (s *Server) h2Config(xcfg *exchangeConfig, maxHeader int, maxBody int64) *h
 		ReadHeaderTimeout:    timeoutOr(s.ReadHeaderTimeout, DefaultReadHeaderTimeout),
 		ReadTimeout:          timeoutOr(s.ReadTimeout, 0),
 		WriteTimeout:         timeoutOr(s.WriteTimeout, 0),
+		ReadStallTimeout:     timeoutOr(s.ReadStallTimeout, DefaultStallTimeout),
+		WriteStallTimeout:    timeoutOr(s.WriteStallTimeout, DefaultStallTimeout),
 		IdleTimeout:          timeoutOr(s.IdleTimeout, DefaultIdleTimeout),
 		Logger:               xcfg.logger,
 	}

@@ -22,6 +22,7 @@ import (
 const (
 	DefaultReadHeaderTimeout  = 10 * time.Second
 	DefaultIdleTimeout        = 120 * time.Second
+	DefaultStallTimeout       = 60 * time.Second
 	DefaultMaxHeaderBytes     = 64 << 10
 	DefaultMaxRequestBodySize = 4 << 20
 )
@@ -43,6 +44,12 @@ type Server struct {
 	ReadTimeout time.Duration
 	// WriteTimeout bounds writing a response, measured from the end of the request header. Zero means no limit.
 	WriteTimeout time.Duration
+	// ReadStallTimeout bounds how long a request body read waits for the client to send more bytes, so a slow
+	// upload that keeps sending is not cut off. Zero means DefaultStallTimeout.
+	ReadStallTimeout time.Duration
+	// WriteStallTimeout bounds how long a response write waits for the client to accept more data, through the
+	// socket or flow control. Zero means DefaultStallTimeout.
+	WriteStallTimeout time.Duration
 	// IdleTimeout bounds the wait for the next keep-alive request. Zero means DefaultIdleTimeout.
 	IdleTimeout time.Duration
 	// MaxHeaderBytes limits the request line and header. Zero means DefaultMaxHeaderBytes.
@@ -385,6 +392,8 @@ func (s *Server) h1Config(xcfg *exchangeConfig, maxHeader int, maxBody int64) *h
 		ReadHeaderTimeout:  timeoutOr(s.ReadHeaderTimeout, DefaultReadHeaderTimeout),
 		ReadTimeout:        timeoutOr(s.ReadTimeout, 0),
 		WriteTimeout:       timeoutOr(s.WriteTimeout, 0),
+		ReadStallTimeout:   timeoutOr(s.ReadStallTimeout, DefaultStallTimeout),
+		WriteStallTimeout:  timeoutOr(s.WriteStallTimeout, DefaultStallTimeout),
 		IdleTimeout:        timeoutOr(s.IdleTimeout, DefaultIdleTimeout),
 		MaxHeaderBytes:     maxHeader,
 		MaxRequestBodySize: maxBody,

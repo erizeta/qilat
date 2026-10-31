@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,8 @@ type Config struct {
 	ReadHeaderTimeout  time.Duration
 	ReadTimeout        time.Duration
 	WriteTimeout       time.Duration
+	ReadStallTimeout   time.Duration
+	WriteStallTimeout  time.Duration
 	IdleTimeout        time.Duration
 	MaxHeaderBytes     int
 	MaxRequestBodySize int64
@@ -64,6 +67,8 @@ type Conn struct {
 	cr   connReader
 	br   *bufio.Reader
 	bw   *bufio.Writer
+	sw   stallWriter     // the bufio.Writer's destination when WriteStallTimeout is set
+	srf  stallReaderFrom // the same, for connections that implement io.ReaderFrom (sendfile)
 	lr   lineReader
 	body body
 	sink sink
@@ -76,6 +81,11 @@ type Conn struct {
 	chunkedResp   bool
 	respKeepAlive bool
 	hijacked      bool
+	readingBody   bool      // a handler is reading the body, so socket reads are bounded by ReadStallTimeout
+	readDeadline  time.Time // from ReadTimeout; zero when unset
+	writeDeadline time.Time // from WriteTimeout; zero when unset
+	readSet       time.Time // the stall read deadline last set; zero when another deadline replaced it
+	writeSet      time.Time // the same for writes
 	scratch       [24]byte
 
 	// watchMu guards starting the background read used to notice a client disconnect.
@@ -88,6 +98,8 @@ type Conn struct {
 // NewConn prepares nc to be served with cfg.
 func NewConn(nc net.Conn, cfg *Config) *Conn {
 	c := &Conn{nc: nc, cfg: cfg, remote: nc.RemoteAddr()}
+	c.sw.c = c
+	c.srf.c = c
 	c.cr.c = c
 	c.cr.cond.L = &c.cr.mu
 	c.sink.c = c
@@ -200,6 +212,14 @@ func (c *Conn) serveRequest() bool {
 	if d := c.cfg.ReadHeaderTimeout; d > 0 {
 		_ = c.nc.SetReadDeadline(start.Add(d))
 	}
+	// Error responses to a request that failed to parse must not inherit the previous request's deadlines.
+	// The read deadline was just replaced; the write deadline is replaced only with WriteTimeout, so without one
+	// the stall deadline set for an earlier response is still in place and still known.
+	c.readDeadline, c.writeDeadline = time.Time{}, time.Time{}
+	c.readSet = time.Time{}
+	if c.cfg.WriteTimeout > 0 {
+		c.writeSet = time.Time{}
+	}
 	c.lr.budget = c.cfg.MaxHeaderBytes
 	c.headerWritten, c.continueSent, c.chunkedResp, c.respKeepAlive = false, false, false, false
 
@@ -215,13 +235,19 @@ func (c *Conn) serveRequest() bool {
 	}
 	c.info = info
 
-	var readDeadline time.Time
 	if d := c.cfg.ReadTimeout; d > 0 {
-		readDeadline = start.Add(d)
+		c.readDeadline = start.Add(d)
+	}
+	// The read deadline is replaced here anyway, so a body's first stall deadline costs no extra timer update.
+	readDeadline := c.readDeadline
+	if d := c.cfg.ReadStallTimeout; d > 0 && (info.chunked || info.contentLength > 0) {
+		c.readSet = earliest(time.Now().Add(d), c.readDeadline)
+		readDeadline = c.readSet
 	}
 	_ = c.nc.SetReadDeadline(readDeadline)
 	if d := c.cfg.WriteTimeout; d > 0 {
-		_ = c.nc.SetWriteDeadline(time.Now().Add(d))
+		c.writeDeadline = time.Now().Add(d)
+		_ = c.nc.SetWriteDeadline(c.writeDeadline)
 	}
 
 	c.body.reset(c, &info, c.cfg.MaxRequestBodySize)
@@ -296,7 +322,7 @@ func (c *Conn) maybeWatchLocked() {
 
 func (c *Conn) writer() *bufio.Writer {
 	if c.bw == nil {
-		c.bw = getWriter(c.nc)
+		c.bw = getWriter(c.socketWriter())
 	}
 	return c.bw
 }
@@ -359,7 +385,11 @@ func (cr *connReader) Read(p []byte) (int, error) {
 		return 1, nil
 	}
 	cr.mu.Unlock()
-	return cr.c.nc.Read(p)
+	c := cr.c
+	if c.readingBody && c.cfg.ReadStallTimeout > 0 {
+		c.readSet = c.moveDeadline(c.readSet, c.cfg.ReadStallTimeout, c.readDeadline, c.nc.SetReadDeadline)
+	}
+	return c.nc.Read(p)
 }
 
 // readAhead blocks until one byte arrives and keeps it for the next Read.
@@ -448,4 +478,101 @@ func getWriter(w io.Writer) *bufio.Writer {
 func putWriter(bw *bufio.Writer) {
 	bw.Reset(nil)
 	writerPool.Put(bw)
+}
+
+// socketWriter returns what the bufio.Writer writes to: the connection itself, or a stallWriter that bounds each
+// write by WriteStallTimeout.
+func (c *Conn) socketWriter() io.Writer {
+	if c.cfg.WriteStallTimeout <= 0 {
+		return c.nc
+	}
+	if _, ok := c.nc.(io.ReaderFrom); ok {
+		return &c.srf
+	}
+	return &c.sw
+}
+
+// stallChunk splits long writes and sendfile calls, so a stall timeout measures a client that stopped reading
+// rather than how long a large transfer takes: a client must accept stallChunk bytes per WriteStallTimeout.
+const stallChunk = 64 << 10
+
+// stallWriter writes to the connection with a fresh write deadline for each chunk.
+type stallWriter struct{ c *Conn }
+
+func (w *stallWriter) Write(p []byte) (int, error) {
+	n := 0
+	for len(p) > 0 {
+		chunk := p[:min(len(p), stallChunk)]
+		w.c.armWrite()
+		m, err := w.c.nc.Write(chunk)
+		n += m
+		if err != nil {
+			return n, w.c.writeFailed(err)
+		}
+		p = p[m:]
+	}
+	return n, nil
+}
+
+// stallReaderFrom is a stallWriter that keeps the connection's ReadFrom, so files are still sent with sendfile.
+type stallReaderFrom struct{ stallWriter }
+
+func (w *stallReaderFrom) ReadFrom(r io.Reader) (int64, error) {
+	rf := w.c.nc.(io.ReaderFrom)
+	lr, ok := r.(*io.LimitedReader)
+	if !ok {
+		w.c.armWrite()
+		n, err := rf.ReadFrom(r)
+		return n, w.c.writeFailed(err)
+	}
+	// sendfile looks through one *io.LimitedReader only, so the caller's is shortened per chunk, then restored.
+	left := lr.N
+	var n int64
+	for left > 0 {
+		chunk := min(left, stallChunk)
+		lr.N = chunk
+		w.c.armWrite()
+		m, err := rf.ReadFrom(lr)
+		n += m
+		left -= m
+		if err != nil || m < chunk {
+			lr.N = left
+			return n, w.c.writeFailed(err)
+		}
+	}
+	lr.N = left
+	return n, nil
+}
+
+func (c *Conn) armWrite() {
+	c.writeSet = c.moveDeadline(c.writeSet, c.cfg.WriteStallTimeout, c.writeDeadline, c.nc.SetWriteDeadline)
+}
+
+// moveDeadline extends a stall deadline to d from now, capped by the total deadline, and returns it. Moving the
+// deadline costs a timer update, so one still at least 7/8 of d away is kept: a stall fails after between 7/8
+// of the timeout and all of it.
+func (c *Conn) moveDeadline(set time.Time, d time.Duration, total time.Time, apply func(time.Time) error) time.Time {
+	now := time.Now()
+	if !set.IsZero() && !set.Before(now.Add(d-d/8)) {
+		return set
+	}
+	set = earliest(now.Add(d), total)
+	_ = apply(set)
+	return set
+}
+
+// writeFailed cancels the request when the client stopped accepting data, as when it disconnects.
+func (c *Conn) writeFailed(err error) error {
+	if errors.Is(err, os.ErrDeadlineExceeded) && c.x != nil {
+		c.x.Cancel()
+	}
+	return err
+}
+
+// earliest returns the sooner of two deadlines, where a zero deadline means none.
+func earliest(a, b time.Time) time.Time {
+	if b.IsZero() || a.Before(b) {
+		return a
+	}
+	return b
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 
 	"github.com/erizeta/qilat/internal/bytesconv"
 	"github.com/erizeta/qilat/internal/exchange"
@@ -77,13 +78,19 @@ func (b *body) Read(p []byte) (int, error) {
 	b.c.beforeBodyRead()
 	var n int
 	var err error
+	b.c.readingBody = true
 	if b.mode == bodyLength {
 		n, err = b.readLength(p)
 	} else {
 		n, err = b.readChunked(p)
 	}
+	b.c.readingBody = false
 	if err != nil && !errors.Is(err, io.EOF) {
 		b.err = err
+		// A client that stopped sending is treated like one that disconnected.
+		if errors.Is(err, os.ErrDeadlineExceeded) && b.c.x != nil {
+			b.c.x.Cancel()
+		}
 	}
 	return n, err
 }

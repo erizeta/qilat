@@ -4,6 +4,7 @@ package h2
 import (
 	"errors"
 	"fmt"
+	"os"
 )
 
 // ClientPreface is what every HTTP/2 client sends first (RFC 9113 section 3.4).
@@ -113,6 +114,8 @@ var (
 	errStreamReset = errors.New("qilat: HTTP/2 stream reset")
 	// errConnClosed is returned to a handler whose connection has gone away.
 	errConnClosed = errors.New("qilat: HTTP/2 connection closed")
+	// errStreamStalled is returned to a handler whose client stopped sending the body or accepting the response.
+	errStreamStalled = fmt.Errorf("qilat: HTTP/2 stream stalled: %w", os.ErrDeadlineExceeded)
 )
 
 // frameHeader is the fixed 9-byte header that starts every frame.

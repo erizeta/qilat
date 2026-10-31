@@ -4,13 +4,17 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/erizeta/qilat/internal/exchange"
 	"github.com/erizeta/qilat/internal/httpfields"
+	"github.com/erizeta/qilat/internal/stall"
 	"github.com/quic-go/quic-go"
 )
 
@@ -20,13 +24,23 @@ const readerSize = 4 << 10
 type stream struct {
 	c   *Conn
 	str *quic.Stream
-	br  *bufio.Reader
+	br  *bufio.Reader // reads through r
+	r   streamReader
 	x   exchange.Exchange
 	req httpfields.Request
 	dec decoder
 	in  []byte // HEADERS payloads read
 	sec []byte // field section being encoded
 	out []byte // frames being written
+
+	readDeadline  time.Time // from ReadTimeout; zero when unset
+	writeDeadline time.Time // from WriteTimeout; zero when unset
+	inBody        bool      // the header has been read, so reads are watched by readStall
+
+	// readStall and writeStall reset the stream when a read or write waits a whole stall timeout. They are
+	// pooled with the stream, so watching does not allocate; stalled* tell the waiting call why it failed.
+	readStall, writeStall     stall.Watchdog
+	readStalled, writeStalled atomic.Bool
 
 	// cancelMu orders a stream reset that cancels the exchange against its release to the pool. gen tells a
 	// late reset callback from an earlier request apart, since streams and exchanges are both reused.
@@ -40,8 +54,11 @@ type stream struct {
 
 var streamPool = sync.Pool{New: func() any {
 	s := &stream{br: bufio.NewReaderSize(nil, readerSize)}
+	s.r.s = s
 	s.body.s = s
 	s.sink.s = s
+	s.readStall.Init(func() { s.stall(&s.readStalled, (*quic.Stream).CancelRead) })
+	s.writeStall.Init(func() { s.stall(&s.writeStalled, (*quic.Stream).CancelWrite) })
 	return s
 }}
 
@@ -50,17 +67,29 @@ func (c *Conn) serveStream(str *quic.Stream) {
 	defer c.streamDone()
 	s := streamPool.Get().(*stream)
 	s.c, s.str = c, str
-	s.br.Reset(str)
+	s.br.Reset(&s.r)
 	s.body = body{s: s, declared: -1, limit: c.cfg.MaxRequestBodySize}
 	s.sink = sink{s: s}
 	defer s.release()
 
 	now := time.Now()
+	s.readDeadline, s.writeDeadline, s.inBody = time.Time{}, time.Time{}, false
+	s.readStalled.Store(false)
+	s.writeStalled.Store(false)
+	s.readStall.SetTimeout(c.cfg.ReadStallTimeout)
+	s.writeStall.SetTimeout(c.cfg.WriteStallTimeout)
 	if d := c.cfg.ReadTimeout; d > 0 {
-		_ = str.SetReadDeadline(now.Add(d))
+		s.readDeadline = now.Add(d)
 	}
 	if d := c.cfg.WriteTimeout; d > 0 {
-		_ = str.SetWriteDeadline(now.Add(d))
+		s.writeDeadline = now.Add(d)
+		_ = str.SetWriteDeadline(s.writeDeadline)
+	}
+	// A client may open a stream and send nothing; the header is bounded as on the other protocols.
+	if d := c.cfg.ReadHeaderTimeout; d > 0 {
+		_ = str.SetReadDeadline(earliest(now.Add(d), s.readDeadline))
+	} else {
+		_ = str.SetReadDeadline(s.readDeadline)
 	}
 	if err := s.serve(); err != nil {
 		var ce *connError
@@ -97,6 +126,8 @@ func (s *stream) serve() error {
 	if err := s.readSection(length); err != nil {
 		return err
 	}
+	s.inBody = true
+	_ = s.str.SetReadDeadline(s.readDeadline)
 	switch {
 	case s.req.TooLarge:
 		return s.reject(431)
@@ -359,7 +390,11 @@ func (b *body) nextFrame() error {
 	return skip(s.br, length)
 }
 
-var errMalformedTrailers = errors.New("qilat: malformed HTTP/3 request trailers")
+var (
+	errMalformedTrailers = errors.New("qilat: malformed HTTP/3 request trailers")
+	// errStreamStalled is returned to a handler whose client stopped sending the body or accepting the response.
+	errStreamStalled = fmt.Errorf("qilat: HTTP/3 stream stalled: %w", os.ErrDeadlineExceeded)
+)
 
 // sink writes the response of one stream.
 type sink struct {
@@ -404,7 +439,7 @@ func (w *sink) appendHeaders(b []byte, status int, h exchange.HeaderList) []byte
 
 func (w *sink) write(b []byte) error {
 	w.s.out = b
-	_, err := w.s.str.Write(b)
+	_, err := w.s.writeStream(b)
 	return err
 }
 
@@ -418,10 +453,10 @@ func (w *sink) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 	var hdr [16]byte
-	if _, err := w.s.str.Write(appendFrameHeader(hdr[:0], frameData, uint64(len(p)))); err != nil {
+	if _, err := w.s.writeStream(appendFrameHeader(hdr[:0], frameData, uint64(len(p)))); err != nil {
 		return 0, err
 	}
-	return w.s.str.Write(p)
+	return w.s.writeStream(p)
 }
 
 // Flush is a no-op: QUIC streams send buffered data as soon as flow control allows.
@@ -464,4 +499,72 @@ func (w *sink) WriteInformational(status int, h exchange.HeaderList) error {
 		w.s.body.expectContinue = false
 	}
 	return w.write(w.appendHeaders(w.s.out[:0], status, h))
+}
+
+// streamReader is what the stream's bufio.Reader reads from. Once the header is read, each read is watched by
+// readStall, so a body the client stops sending fails without limiting a slow upload that keeps going.
+type streamReader struct{ s *stream }
+
+func (r *streamReader) Read(p []byte) (int, error) {
+	s := r.s
+	if !s.inBody {
+		return s.str.Read(p)
+	}
+	s.readStall.Begin()
+	n, err := s.str.Read(p)
+	s.readStall.End()
+	if err != nil && s.readStalled.Load() {
+		err = errStreamStalled
+	}
+	return n, err
+}
+
+// stallChunk splits long writes, so a stall timeout measures a client that stopped reading rather than how long
+// a large response takes: a client must accept stallChunk bytes per WriteStallTimeout.
+const stallChunk = 64 << 10
+
+// writeStream writes p to the stream, watching each chunk with writeStall.
+func (s *stream) writeStream(p []byte) (int, error) {
+	if s.c.cfg.WriteStallTimeout <= 0 {
+		return s.str.Write(p)
+	}
+	n := 0
+	for len(p) > 0 {
+		chunk := p[:min(len(p), stallChunk)]
+		s.writeStall.Begin()
+		m, err := s.str.Write(chunk)
+		s.writeStall.End()
+		n += m
+		if err != nil {
+			if s.writeStalled.Load() {
+				err = errStreamStalled
+			}
+			return n, err
+		}
+		p = p[m:]
+	}
+	return n, nil
+}
+
+// stall resets one direction of the stream after its client stopped sending or accepting data, and cancels
+// the request as if the client had reset it. A stream back in the pool, or serving a later request, is safe
+// from a late call: only the request still being served is canceled.
+func (s *stream) stall(flag *atomic.Bool, cancel func(*quic.Stream, quic.StreamErrorCode)) {
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	if s.live == nil {
+		return
+	}
+	// The context is canceled before the waiting call wakes, so the handler sees both together.
+	flag.Store(true)
+	s.live.Cancel()
+	cancel(s.str, errRequestCancelled)
+}
+
+// earliest returns the sooner of two deadlines, where a zero deadline means none.
+func earliest(a, b time.Time) time.Time {
+	if b.IsZero() || a.Before(b) {
+		return a
+	}
+	return b
 }
