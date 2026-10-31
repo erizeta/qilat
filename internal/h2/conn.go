@@ -15,6 +15,7 @@ import (
 	"github.com/erizeta/qilat/internal/bytesconv"
 	"github.com/erizeta/qilat/internal/exchange"
 	"github.com/erizeta/qilat/internal/httpfields"
+	"github.com/erizeta/qilat/internal/stall"
 	"golang.org/x/net/http2/hpack"
 )
 
@@ -34,6 +35,8 @@ type Config struct {
 	ReadHeaderTimeout  time.Duration
 	ReadTimeout        time.Duration
 	WriteTimeout       time.Duration
+	ReadStallTimeout   time.Duration
+	WriteStallTimeout  time.Duration
 	IdleTimeout        time.Duration
 	Logger             *slog.Logger
 }
@@ -57,20 +60,23 @@ var (
 
 // Conn serves HTTP/2 on one connection.
 type Conn struct {
-	nc       net.Conn
-	dw       deadlineWriter
-	cfg      *Config
-	remote   net.Addr
-	tlsState *tls.ConnectionState
-	br       *bufio.Reader
-	ownsBR   bool
-	fr       framer
-	dec      *hpack.Decoder
-	hb       headerBlock // reader goroutine only
-	calm     float64     // reader goroutine only
-	calmAt   time.Time   // reader goroutine only
-	resets   [recentResets]uint32
-	resetPos int
+	nc net.Conn
+	dw deadlineWriter
+	// stallMu guards stallFree, the watches not lent to a stream. No other lock is taken while it is held.
+	stallMu   sync.Mutex
+	stallFree []*stallWatch
+	cfg       *Config
+	remote    net.Addr
+	tlsState  *tls.ConnectionState
+	br        *bufio.Reader
+	ownsBR    bool
+	fr        framer
+	dec       *hpack.Decoder
+	hb        headerBlock // reader goroutine only
+	calm      float64     // reader goroutine only
+	calmAt    time.Time   // reader goroutine only
+	resets    [recentResets]uint32
+	resetPos  int
 
 	sched      writeSched
 	bw         *bufio.Writer        // guarded by sched
@@ -755,6 +761,62 @@ func (c *Conn) startStream(st *stream) error {
 	return nil
 }
 
+// stallWatch is a Watchdog lent to one stream at a time, so watching streams does not allocate per request.
+type stallWatch struct {
+	stall.Watchdog
+	st atomic.Pointer[stream]
+}
+
+func (c *Conn) takeWatch(st *stream, d time.Duration) *stallWatch {
+	c.stallMu.Lock()
+	var w *stallWatch
+	if n := len(c.stallFree); n > 0 {
+		w = c.stallFree[n-1]
+		c.stallFree[n-1] = nil
+		c.stallFree = c.stallFree[:n-1]
+	}
+	c.stallMu.Unlock()
+	if w == nil {
+		w = new(stallWatch)
+		w.Init(func() {
+			if st := w.st.Load(); st != nil {
+				c.stallStream(st)
+			}
+		})
+	}
+	w.SetTimeout(d)
+	w.st.Store(st)
+	return w
+}
+
+func (c *Conn) returnWatch(w *stallWatch) {
+	if w == nil {
+		return
+	}
+	w.End()
+	w.st.Store(nil) // a check still pending finds no stream
+	c.stallMu.Lock()
+	c.stallFree = append(c.stallFree, w)
+	c.stallMu.Unlock()
+}
+
+// stallStream resets st after its handler waited too long for the client, so that its reads and writes fail
+// with errStreamStalled rather than errStreamReset.
+func (c *Conn) stallStream(st *stream) {
+	c.mu.Lock()
+	live := c.streams[st.id] == st && !st.reset
+	if live {
+		// The context is canceled before the waiting read wakes, so the handler sees both together.
+		st.stalled = true
+		st.x.Cancel()
+		st.body.fail(errStreamStalled)
+	}
+	c.mu.Unlock()
+	if live {
+		c.resetStream(st.id, ErrCodeCancel)
+	}
+}
+
 func (c *Conn) timeoutStream(st *stream) {
 	c.mu.Lock()
 	live := c.streams[st.id] == st && !st.reset
@@ -805,6 +867,9 @@ func (c *Conn) closeStream(st *stream, serveErr error) {
 	if serveErr != nil {
 		c.logDebug("qilat: HTTP/2 stream failed", serveErr)
 	}
+	c.returnWatch(st.readStall)
+	c.returnWatch(st.writeStall)
+	st.readStall, st.writeStall = nil, nil
 	var code ErrCode
 	sendRST := false
 	c.mu.Lock()
@@ -901,8 +966,8 @@ func (c *Conn) write(p []byte) {
 		return
 	}
 	if c.bw == nil {
-		if c.cfg.WriteTimeout > 0 {
-			c.dw = deadlineWriter{c.nc, c.cfg.WriteTimeout}
+		if d := positiveMin(c.cfg.WriteStallTimeout, c.cfg.WriteTimeout); d > 0 {
+			c.dw = deadlineWriter{nc: c.nc, d: d}
 			c.bw = getWriter(&c.dw)
 		} else {
 			c.bw = getWriter(c.nc)
@@ -1049,11 +1114,18 @@ func (c *Conn) reserve(st *stream, want int) (int, error) {
 	maxFrame := int64(c.peerFrame.Load())
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	flushed := false
+	flushed, waited := false, false
+	defer func() {
+		if waited {
+			endStall(st.writeStall)
+		}
+	}()
 	for {
 		switch {
 		case c.closed:
 			return 0, errConnClosed
+		case st.reset && st.stalled:
+			return 0, errStreamStalled
 		case st.reset:
 			return 0, errStreamReset
 		}
@@ -1069,6 +1141,10 @@ func (c *Conn) reserve(st *stream, want int) (int, error) {
 			c.mu.Lock()
 			flushed = true
 			continue
+		}
+		if !waited {
+			waited = true
+			st.beginStall(&st.writeStall, c.cfg.WriteStallTimeout)
 		}
 		c.flow.Wait()
 	}
@@ -1307,16 +1383,23 @@ func putReader(br *bufio.Reader) {
 	readerPool.Put(br)
 }
 
-// deadlineWriter bounds each socket write by WriteTimeout. Writers share the connection under one lock, so a
-// client that stops reading would otherwise stall every stream, and the stream timers waiting for that lock.
+// deadlineWriter bounds each socket write by WriteStallTimeout, or WriteTimeout if sooner. Writers share the
+// connection under one lock, so a client that stops reading would otherwise stall every stream, and the stream
+// timers waiting for that lock.
 type deadlineWriter struct {
-	nc net.Conn
-	d  time.Duration
+	nc  net.Conn
+	d   time.Duration
+	set time.Time // the deadline last set
 }
 
 func (w *deadlineWriter) Write(p []byte) (int, error) {
-	if err := w.nc.SetWriteDeadline(time.Now().Add(w.d)); err != nil {
-		return 0, err
+	// Moving the deadline for every write costs a timer update; one still at least 7/8 of the timeout away is
+	// kept, so a write fails after between 7/8 of the timeout and all of it.
+	if now := time.Now(); w.set.Before(now.Add(w.d - w.d/8)) {
+		w.set = now.Add(w.d)
+		if err := w.nc.SetWriteDeadline(w.set); err != nil {
+			return 0, err
+		}
 	}
 	return w.nc.Write(p)
 }
@@ -1333,4 +1416,15 @@ func getWriter(w io.Writer) *bufio.Writer {
 func putWriter(bw *bufio.Writer) {
 	bw.Reset(nil)
 	writerPool.Put(bw)
+}
+
+// positiveMin returns the smaller of the durations that are set, or zero if neither is.
+func positiveMin(a, b time.Duration) time.Duration {
+	switch {
+	case a <= 0:
+		return max(b, 0)
+	case b <= 0:
+		return a
+	}
+	return min(a, b)
 }

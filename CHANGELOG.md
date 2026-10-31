@@ -7,6 +7,27 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+### Added
+
+- `Server.ReadStallTimeout` and `Server.WriteStallTimeout`, with `DefaultStallTimeout` (60 s). They bound how
+  long a handler waits for a client that stopped sending the request body or accepting the response, on
+  HTTP/1.1, HTTP/2, and HTTP/3, without limiting transfers that keep moving. A stalled read or write fails with
+  an error wrapping `os.ErrDeadlineExceeded` and cancels the request context.
+
+### Changed
+
+- A client that stops sending a request body or stops reading a response for 60 s is now disconnected (HTTP/1.1)
+  or has its stream reset (HTTP/2, HTTP/3); before, the request waited without limit. To keep the old behavior,
+  set `ReadStallTimeout` and `WriteStallTimeout` to a negative value.
+- With `WriteStallTimeout` set, HTTP/1.1 and HTTP/3 send long writes in 64 KiB pieces, and HTTP/1.1 sends
+  files the same way, so a client must accept at least 64 KiB per timeout. Files are still sent with sendfile.
+
+### Security
+
+- An HTTP/3 request stream had no time limit for its header unless `ReadTimeout` was set, so a client could hold
+  up to `HTTP3.MaxConcurrentStreams` streams per connection without sending a request. The header is now bounded
+  by `ReadHeaderTimeout`, as on HTTP/1.1.
+
 ## [0.1.0] - 2026-10-31
 
 The first release. Minimum Go version: 1.26.

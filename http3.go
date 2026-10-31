@@ -71,8 +71,11 @@ func (s *Server) serveQUIC(pc net.PacketConn, tlsConf *tls.Config) error {
 		MaxFieldSectionSize:  min(maxHeader, 1<<30),
 		MaxRequestBodySize:   maxBody,
 		MaxConcurrentStreams: positiveOr(c.MaxConcurrentStreams, DefaultHTTP3MaxConcurrentStreams),
+		ReadHeaderTimeout:    timeoutOr(s.ReadHeaderTimeout, DefaultReadHeaderTimeout),
 		ReadTimeout:          timeoutOr(s.ReadTimeout, 0),
 		WriteTimeout:         timeoutOr(s.WriteTimeout, 0),
+		ReadStallTimeout:     timeoutOr(s.ReadStallTimeout, DefaultStallTimeout),
+		WriteStallTimeout:    timeoutOr(s.WriteStallTimeout, DefaultStallTimeout),
 		Allow0RTT:            c.Allow0RTT,
 		Logger:               xcfg.logger,
 	})

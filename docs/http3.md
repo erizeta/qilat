@@ -100,9 +100,12 @@ which rules out GET handlers with side effects.
 | `MaxReceiveBufferPerStream` | 1 MiB | Request body data a client may send ahead of the handler reading it |
 | `MaxReceiveBufferPerConnection` | 4 MiB | The same for all streams of a connection |
 
-`Server.MaxHeaderBytes` limits the request header section, `MaxRequestBodySize` the body, `IdleTimeout` the
-QUIC idle timeout, and `ReadHeaderTimeout` the QUIC handshake. QPACK uses only the static table, so a client
-cannot make the server keep a dynamic table, and request headers are decoded without allocating.
+`Server.MaxHeaderBytes` limits the request header section, `MaxRequestBodySize` the body, and `IdleTimeout` the
+QUIC idle timeout. `ReadHeaderTimeout` bounds the QUIC handshake and, separately, the request header on each
+stream, so a client cannot hold streams open without sending a request. `ReadStallTimeout` and
+`WriteStallTimeout` reset a stream whose client stops sending the body or reading the response. QPACK uses only
+the static table, so a client cannot make the server keep a dynamic table, and request headers are decoded
+without allocating.
 
 ## Checking that it works
 
