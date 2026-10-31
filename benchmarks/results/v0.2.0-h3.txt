@@ -1,0 +1,46 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH3/quicgo/plaintext-10         	   81021	     14956 ns/op	   2.67 MB/s	   14342 B/op	     199 allocs/op
+BenchmarkH3/quicgo/plaintext-10         	   78858	     15020 ns/op	   2.66 MB/s	   14343 B/op	     199 allocs/op
+BenchmarkH3/quicgo/plaintext-10         	   76546	     15094 ns/op	   2.65 MB/s	   14353 B/op	     199 allocs/op
+BenchmarkH3/quicgo/plaintext-10         	   78544	     15055 ns/op	   2.66 MB/s	   14355 B/op	     199 allocs/op
+BenchmarkH3/quicgo/plaintext-10         	   74616	     14974 ns/op	   2.67 MB/s	   14341 B/op	     199 allocs/op
+BenchmarkH3/quicgo/json-1kb-10          	   58251	     19340 ns/op	   1.81 MB/s	   17906 B/op	     206 allocs/op
+BenchmarkH3/quicgo/json-1kb-10          	   61285	     19512 ns/op	   1.79 MB/s	   17859 B/op	     206 allocs/op
+BenchmarkH3/quicgo/json-1kb-10          	   62515	     19460 ns/op	   1.80 MB/s	   17915 B/op	     206 allocs/op
+BenchmarkH3/quicgo/json-1kb-10          	   61236	     19764 ns/op	   1.77 MB/s	   17879 B/op	     206 allocs/op
+BenchmarkH3/quicgo/json-1kb-10          	   61266	     19517 ns/op	   1.79 MB/s	   17872 B/op	     206 allocs/op
+BenchmarkH3/quicgo/headers-20-10        	   49369	     23763 ns/op	  39.22 MB/s	   27416 B/op	     341 allocs/op
+BenchmarkH3/quicgo/headers-20-10        	   50040	     24053 ns/op	  38.75 MB/s	   27402 B/op	     341 allocs/op
+BenchmarkH3/quicgo/headers-20-10        	   49532	     24025 ns/op	  38.79 MB/s	   27387 B/op	     341 allocs/op
+BenchmarkH3/quicgo/headers-20-10        	   49802	     24862 ns/op	  37.49 MB/s	   27394 B/op	     341 allocs/op
+BenchmarkH3/quicgo/headers-20-10        	   50691	     23811 ns/op	  39.14 MB/s	   27401 B/op	     341 allocs/op
+BenchmarkH3/quicgo/upload-64kb-10       	    4752	    242616 ns/op	 270.54 MB/s	   43833 B/op	     877 allocs/op
+BenchmarkH3/quicgo/upload-64kb-10       	    4850	    241390 ns/op	 271.91 MB/s	   43771 B/op	     876 allocs/op
+BenchmarkH3/quicgo/upload-64kb-10       	    4840	    240447 ns/op	 272.98 MB/s	   43850 B/op	     875 allocs/op
+BenchmarkH3/quicgo/upload-64kb-10       	    4737	    239506 ns/op	 274.05 MB/s	   43829 B/op	     877 allocs/op
+BenchmarkH3/quicgo/upload-64kb-10       	    4746	    237733 ns/op	 276.10 MB/s	   43794 B/op	     876 allocs/op
+BenchmarkH3/qilat/plaintext-10          	  149292	      6922 ns/op	   5.78 MB/s	    9626 B/op	     128 allocs/op
+BenchmarkH3/qilat/plaintext-10          	  178918	      6649 ns/op	   6.02 MB/s	    9564 B/op	     128 allocs/op
+BenchmarkH3/qilat/plaintext-10          	  166244	      6567 ns/op	   6.09 MB/s	    9548 B/op	     128 allocs/op
+BenchmarkH3/qilat/plaintext-10          	  178720	      6652 ns/op	   6.01 MB/s	    9533 B/op	     128 allocs/op
+BenchmarkH3/qilat/plaintext-10          	  180331	      6535 ns/op	   6.12 MB/s	    9530 B/op	     128 allocs/op
+BenchmarkH3/qilat/json-1kb-10           	  156709	      7553 ns/op	   4.63 MB/s	   11333 B/op	     135 allocs/op
+BenchmarkH3/qilat/json-1kb-10           	  160569	      7566 ns/op	   4.63 MB/s	   11325 B/op	     135 allocs/op
+BenchmarkH3/qilat/json-1kb-10           	  156543	      7372 ns/op	   4.75 MB/s	   11319 B/op	     135 allocs/op
+BenchmarkH3/qilat/json-1kb-10           	  162727	      7485 ns/op	   4.68 MB/s	   11318 B/op	     135 allocs/op
+BenchmarkH3/qilat/json-1kb-10           	  159448	      7491 ns/op	   4.67 MB/s	   11316 B/op	     135 allocs/op
+BenchmarkH3/qilat/headers-20-10         	  137858	      8652 ns/op	 107.72 MB/s	   15704 B/op	     185 allocs/op
+BenchmarkH3/qilat/headers-20-10         	  136359	      8572 ns/op	 108.72 MB/s	   15694 B/op	     184 allocs/op
+BenchmarkH3/qilat/headers-20-10         	  138229	      8576 ns/op	 108.67 MB/s	   15696 B/op	     184 allocs/op
+BenchmarkH3/qilat/headers-20-10         	  140761	      8524 ns/op	 109.34 MB/s	   15692 B/op	     184 allocs/op
+BenchmarkH3/qilat/headers-20-10         	  136288	      8547 ns/op	 109.05 MB/s	   15684 B/op	     184 allocs/op
+BenchmarkH3/qilat/upload-64kb-10        	    5017	    226818 ns/op	 289.38 MB/s	   37757 B/op	     760 allocs/op
+BenchmarkH3/qilat/upload-64kb-10        	    5173	    230273 ns/op	 285.04 MB/s	   37773 B/op	     759 allocs/op
+BenchmarkH3/qilat/upload-64kb-10        	    4842	    227037 ns/op	 289.10 MB/s	   37685 B/op	     758 allocs/op
+BenchmarkH3/qilat/upload-64kb-10        	    5088	    233174 ns/op	 281.49 MB/s	   37708 B/op	     759 allocs/op
+BenchmarkH3/qilat/upload-64kb-10        	    5046	    236239 ns/op	 277.84 MB/s	   37852 B/op	     762 allocs/op
+PASS
+ok  	github.com/erizeta/qilat/benchmarks	52.118s

@@ -1,0 +1,46 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/nethttp/plaintext-10         	   95205	     12440 ns/op	   3.22 MB/s	    9170 B/op	      86 allocs/op
+BenchmarkH2C/nethttp/plaintext-10         	   96308	     12777 ns/op	   3.13 MB/s	    9163 B/op	      86 allocs/op
+BenchmarkH2C/nethttp/plaintext-10         	   96220	     15081 ns/op	   2.65 MB/s	    9167 B/op	      86 allocs/op
+BenchmarkH2C/nethttp/plaintext-10         	   96223	     12598 ns/op	   3.17 MB/s	    9181 B/op	      86 allocs/op
+BenchmarkH2C/nethttp/plaintext-10         	   90788	     12250 ns/op	   3.27 MB/s	    9168 B/op	      86 allocs/op
+BenchmarkH2C/nethttp/json-1kb-10          	   78968	     15299 ns/op	   2.29 MB/s	   12120 B/op	      89 allocs/op
+BenchmarkH2C/nethttp/json-1kb-10          	   73472	     15135 ns/op	   2.31 MB/s	   12122 B/op	      89 allocs/op
+BenchmarkH2C/nethttp/json-1kb-10          	   81075	     15576 ns/op	   2.25 MB/s	   12129 B/op	      89 allocs/op
+BenchmarkH2C/nethttp/json-1kb-10          	   80883	     14944 ns/op	   2.34 MB/s	   12109 B/op	      89 allocs/op
+BenchmarkH2C/nethttp/json-1kb-10          	   81255	     15215 ns/op	   2.30 MB/s	   12131 B/op	      89 allocs/op
+BenchmarkH2C/nethttp/headers-20-10        	   53538	     22121 ns/op	  42.13 MB/s	   19539 B/op	     169 allocs/op
+BenchmarkH2C/nethttp/headers-20-10        	   56176	     21502 ns/op	  43.34 MB/s	   19562 B/op	     169 allocs/op
+BenchmarkH2C/nethttp/headers-20-10        	   56314	     22736 ns/op	  40.99 MB/s	   19573 B/op	     169 allocs/op
+BenchmarkH2C/nethttp/headers-20-10        	   53521	     22115 ns/op	  42.14 MB/s	   19543 B/op	     169 allocs/op
+BenchmarkH2C/nethttp/headers-20-10        	   56185	     21405 ns/op	  43.54 MB/s	   19541 B/op	     169 allocs/op
+BenchmarkH2C/nethttp/upload-64kb-10       	   24556	     49337 ns/op	1330.39 MB/s	   10747 B/op	     130 allocs/op
+BenchmarkH2C/nethttp/upload-64kb-10       	   24172	     49695 ns/op	1320.79 MB/s	   10871 B/op	     130 allocs/op
+BenchmarkH2C/nethttp/upload-64kb-10       	   24878	     50477 ns/op	1300.34 MB/s	   10727 B/op	     130 allocs/op
+BenchmarkH2C/nethttp/upload-64kb-10       	   24212	     48909 ns/op	1342.01 MB/s	   10714 B/op	     130 allocs/op
+BenchmarkH2C/nethttp/upload-64kb-10       	   23288	     50713 ns/op	1294.27 MB/s	   10751 B/op	     131 allocs/op
+BenchmarkH2C/qilat/plaintext-10           	  148874	      7977 ns/op	   5.01 MB/s	    6055 B/op	      53 allocs/op
+BenchmarkH2C/qilat/plaintext-10           	  147786	      7990 ns/op	   5.01 MB/s	    6055 B/op	      53 allocs/op
+BenchmarkH2C/qilat/plaintext-10           	  148035	      8053 ns/op	   4.97 MB/s	    6052 B/op	      53 allocs/op
+BenchmarkH2C/qilat/plaintext-10           	  149186	      7865 ns/op	   5.09 MB/s	    6051 B/op	      53 allocs/op
+BenchmarkH2C/qilat/plaintext-10           	  154225	      7779 ns/op	   5.14 MB/s	    6053 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10            	  119698	     10020 ns/op	   3.49 MB/s	    8953 B/op	      57 allocs/op
+BenchmarkH2C/qilat/json-1kb-10            	  120837	     10329 ns/op	   3.39 MB/s	    8953 B/op	      57 allocs/op
+BenchmarkH2C/qilat/json-1kb-10            	  114144	      9998 ns/op	   3.50 MB/s	    8955 B/op	      57 allocs/op
+BenchmarkH2C/qilat/json-1kb-10            	  119882	     10304 ns/op	   3.40 MB/s	    8956 B/op	      57 allocs/op
+BenchmarkH2C/qilat/json-1kb-10            	  118089	     10205 ns/op	   3.43 MB/s	    8959 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10          	   87255	     13479 ns/op	  69.15 MB/s	   11454 B/op	     106 allocs/op
+BenchmarkH2C/qilat/headers-20-10          	   90118	     14025 ns/op	  66.45 MB/s	   11450 B/op	     106 allocs/op
+BenchmarkH2C/qilat/headers-20-10          	   90158	     13287 ns/op	  70.15 MB/s	   11446 B/op	     106 allocs/op
+BenchmarkH2C/qilat/headers-20-10          	   85712	     13504 ns/op	  69.02 MB/s	   11455 B/op	     106 allocs/op
+BenchmarkH2C/qilat/headers-20-10          	   89738	     13549 ns/op	  68.79 MB/s	   11454 B/op	     106 allocs/op
+BenchmarkH2C/qilat/upload-64kb-10         	   42888	     27698 ns/op	2369.73 MB/s	    7763 B/op	      73 allocs/op
+BenchmarkH2C/qilat/upload-64kb-10         	   43683	     27198 ns/op	2413.31 MB/s	    7654 B/op	      73 allocs/op
+BenchmarkH2C/qilat/upload-64kb-10         	   44576	     27166 ns/op	2416.19 MB/s	    7491 B/op	      72 allocs/op
+BenchmarkH2C/qilat/upload-64kb-10         	   44343	     27100 ns/op	2422.01 MB/s	    7389 B/op	      72 allocs/op
+BenchmarkH2C/qilat/upload-64kb-10         	   44730	     26926 ns/op	2437.69 MB/s	    7399 B/op	      72 allocs/op
+PASS
+ok  	github.com/erizeta/qilat/benchmarks	56.780s
