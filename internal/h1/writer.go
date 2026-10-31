@@ -182,6 +182,7 @@ func (s *sink) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err := c.nc.SetDeadline(time.Time{}); err != nil {
 		return nil, nil, err
 	}
+	bw.Reset(c.nc) // the hijacker owns the deadlines from here on
 	return c.nc, bufio.NewReadWriter(c.br, bw), nil
 }
 

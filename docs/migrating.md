@@ -84,6 +84,7 @@ Or keep those routes on `FromStd`, where everything in net/http works.
 | `Handler`, `TLSConfig`, `BaseContext` | the same |
 | `ReadHeaderTimeout`, `IdleTimeout`, `MaxHeaderBytes` | the same, but **zero means a safe default** (10 s, 120 s, 64 KiB), not unlimited |
 | `ReadTimeout`, `WriteTimeout` | the same; zero means no limit, as in net/http |
+| none | `ReadStallTimeout`, `WriteStallTimeout`: 60 s for a client that stops sending or reading |
 | none | `MaxRequestBodySize` (4 MiB by default), `MaxConcurrentConns` |
 | `Protocols` | `DisableHTTP2`, `H2C`, `DisableHTTP3` |
 | `HTTP2` | `HTTP2` (`qilat.HTTP2Config`) |

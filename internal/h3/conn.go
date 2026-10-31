@@ -24,8 +24,11 @@ type Config struct {
 	MaxFieldSectionSize  int
 	MaxRequestBodySize   int64 // -1 means no limit
 	MaxConcurrentStreams int   // handlers running at once per connection
+	ReadHeaderTimeout    time.Duration
 	ReadTimeout          time.Duration
 	WriteTimeout         time.Duration
+	ReadStallTimeout     time.Duration
+	WriteStallTimeout    time.Duration
 	// Allow0RTT is set when the QUIC listener accepts 0-RTT; requests other than GET, HEAD, and OPTIONS that
 	// arrive before the handshake completes are then answered 425 Too Early (RFC 8470).
 	Allow0RTT bool

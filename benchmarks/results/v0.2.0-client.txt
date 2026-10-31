@@ -1,0 +1,66 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkClientH1/plaintext/nethttp-10         	  178351	      6087 ns/op	    3633 B/op	      48 allocs/op
+BenchmarkClientH1/plaintext/nethttp-10         	  186544	      6005 ns/op	    3632 B/op	      48 allocs/op
+BenchmarkClientH1/plaintext/nethttp-10         	  200715	      6029 ns/op	    3632 B/op	      48 allocs/op
+BenchmarkClientH1/plaintext/nethttp-10         	  199720	      5997 ns/op	    3632 B/op	      48 allocs/op
+BenchmarkClientH1/plaintext/nethttp-10         	  198750	      6075 ns/op	    3632 B/op	      48 allocs/op
+BenchmarkClientH1/plaintext/fasthttp-10        	  204834	      5652 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/fasthttp-10        	  210949	      5815 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/fasthttp-10        	  207360	      5685 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/fasthttp-10        	  210927	      6017 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/fasthttp-10        	  183824	      5627 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/qilat-10           	  224738	      5612 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/qilat-10           	  205820	      5773 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/qilat-10           	  205256	      5805 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/qilat-10           	  205736	      5772 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/plaintext/qilat-10           	  204592	      5774 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/nethttp-10          	  203757	      6391 ns/op	    3617 B/op	      48 allocs/op
+BenchmarkClientH1/json-1kb/nethttp-10          	  200553	      6253 ns/op	    3617 B/op	      48 allocs/op
+BenchmarkClientH1/json-1kb/nethttp-10          	  203386	      5973 ns/op	    3617 B/op	      48 allocs/op
+BenchmarkClientH1/json-1kb/nethttp-10          	  198523	      5965 ns/op	    3617 B/op	      48 allocs/op
+BenchmarkClientH1/json-1kb/nethttp-10          	  200965	      6219 ns/op	    3617 B/op	      48 allocs/op
+BenchmarkClientH1/json-1kb/fasthttp-10         	  208501	      5702 ns/op	     332 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/fasthttp-10         	  206467	      5721 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/fasthttp-10         	  205550	      5604 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/fasthttp-10         	  206556	      5696 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/fasthttp-10         	  205234	      5749 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/qilat-10            	  213915	      5693 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/qilat-10            	  201601	      5714 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/qilat-10            	  207336	      5824 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/qilat-10            	  205665	      5780 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/json-1kb/qilat-10            	  205340	      5828 ns/op	       1 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/nethttp-10        	  163837	      7029 ns/op	    8263 B/op	      78 allocs/op
+BenchmarkClientH1/headers-20/nethttp-10        	  173850	      7012 ns/op	    8262 B/op	      78 allocs/op
+BenchmarkClientH1/headers-20/nethttp-10        	  172446	      7100 ns/op	    8263 B/op	      78 allocs/op
+BenchmarkClientH1/headers-20/nethttp-10        	  172402	      7173 ns/op	    8263 B/op	      78 allocs/op
+BenchmarkClientH1/headers-20/nethttp-10        	  170361	      7355 ns/op	    8263 B/op	      78 allocs/op
+BenchmarkClientH1/headers-20/fasthttp-10       	  210333	      5791 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/fasthttp-10       	  207242	      5756 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/fasthttp-10       	  211329	      5710 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/fasthttp-10       	  217068	      5738 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/fasthttp-10       	  218778	      5662 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/qilat-10          	  213854	      5670 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/qilat-10          	  208827	      5624 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/qilat-10          	  211945	      5682 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/qilat-10          	  209890	      5672 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/headers-20/qilat-10          	  208752	      5684 ns/op	       2 B/op	       0 allocs/op
+BenchmarkClientH1/upload-64kb/nethttp-10       	   97582	     12334 ns/op	   37385 B/op	      58 allocs/op
+BenchmarkClientH1/upload-64kb/nethttp-10       	   97588	     12360 ns/op	   37404 B/op	      58 allocs/op
+BenchmarkClientH1/upload-64kb/nethttp-10       	   97047	     12429 ns/op	   37386 B/op	      58 allocs/op
+BenchmarkClientH1/upload-64kb/nethttp-10       	   94436	     12360 ns/op	   37381 B/op	      58 allocs/op
+BenchmarkClientH1/upload-64kb/nethttp-10       	   98331	     12381 ns/op	   37377 B/op	      58 allocs/op
+BenchmarkClientH1/upload-64kb/fasthttp-10      	  126007	      9129 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/fasthttp-10      	  131096	      9142 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/fasthttp-10      	  132135	      9053 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/fasthttp-10      	  133388	      9469 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/fasthttp-10      	  132691	      9185 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/qilat-10         	  128667	      9157 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/qilat-10         	  132508	      9262 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/qilat-10         	  133740	      8992 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/qilat-10         	  127036	      9148 ns/op	       9 B/op	       1 allocs/op
+BenchmarkClientH1/upload-64kb/qilat-10         	  132619	      9156 ns/op	       9 B/op	       1 allocs/op
+PASS
+ok  	github.com/erizeta/qilat/benchmarks	76.709s
