@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -217,6 +218,7 @@ func FuzzParseRequest(f *testing.F) {
 		"POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n",
 		"GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n",
 		"POST / HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n",
+		"GET /% HTTP/1.1\r\nHost: h\r\n\r\n",
 	} {
 		f.Add(s)
 	}
@@ -226,6 +228,12 @@ func FuzzParseRequest(f *testing.F) {
 			return
 		}
 		req, stdErr := http.ReadRequest(bufio.NewReader(strings.NewReader(raw)))
+		// The parser hands the target to the core, whose URI parser rejects what net/url does (FuzzURI checks
+		// that), so a server answers such a request 400; the recorder here accepts any target.
+		var urlErr *url.Error
+		if errors.As(stdErr, &urlErr) {
+			return
+		}
 		if stdErr != nil {
 			t.Fatalf("qilat accepted, net/http rejected (%v):\n%q", stdErr, raw)
 		}
