@@ -427,12 +427,15 @@ func (cr *connReader) backgroundRead() {
 		cr.hasByte = true
 	}
 	aborted := cr.aborted
-	cr.inRead = false
 	cr.mu.Unlock()
-	// The exchange stays valid until abortPendingRead returns, which waits for this goroutine.
+	// inRead stays set until the exchange is no longer used: abortPendingRead waits for it, and only then may
+	// the request end and the exchange go back to the pool, possibly to another connection.
 	if err != nil && !aborted {
 		cr.c.x.Cancel()
 	}
+	cr.mu.Lock()
+	cr.inRead = false
+	cr.mu.Unlock()
 	cr.cond.Broadcast()
 }
 

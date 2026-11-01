@@ -29,6 +29,11 @@ changes, each listed with what to change.
   up to `HTTP3.MaxConcurrentStreams` streams per connection without sending a request. The header is now bounded
   by `ReadHeaderTimeout`, as on HTTP/1.1.
 
+### Fixed
+
+- On HTTP/1.1, a client disconnecting as its request ended could make the server cancel the context of a later
+  request, possibly on another connection, through the pooled exchange (a data race present since v0.1.0).
+
 ## [0.1.0] - 2026-10-31
 
 The first release. Minimum Go version: 1.26.
