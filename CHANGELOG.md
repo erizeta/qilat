@@ -7,6 +7,11 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
+Clients that stop sending a request body or reading a response are now disconnected after 60 s; set both stall
+timeouts to a negative value to keep v0.1.0's behavior.
+
 ### Added
 
 - `Server.ReadStallTimeout` and `Server.WriteStallTimeout`, with `DefaultStallTimeout` (60 s). They bound how
@@ -96,5 +101,6 @@ Found by the pre-release security and code reviews and fixed before the first re
 - `Transport.CloseIdleConnections` racing with the idle timer could panic, and stopped idle reaping for
   HTTP/2 and HTTP/3 connections that were busy at the time.
 
-[Unreleased]: https://github.com/erizeta/qilat/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/erizeta/qilat/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/erizeta/qilat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/erizeta/qilat/releases/tag/v0.1.0
