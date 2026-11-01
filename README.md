@@ -651,10 +651,11 @@ Unlike net/http, a zero value means a safe limit, not "unlimited". Set a field t
 | `HTTP2.MaxConcurrentStreams`, `HTTP3.MaxConcurrentStreams` | 250 concurrent requests per connection |
 
 The stall timeouts apply only while a handler waits for the client: a read waiting for body bytes, or a write
-waiting for the client to take data (at least 64 KiB per timeout). A slow upload or download that keeps moving,
-a long poll, and a server-sent event stream are not affected. When one expires, the read or write fails with an
-error wrapping `os.ErrDeadlineExceeded`, the request context is canceled, and the connection (HTTP/1.1) or
-stream (HTTP/2, HTTP/3) is closed.
+waiting for the client to take data. A slow upload or download that keeps moving, a long poll, and a server-sent
+event stream are not affected. Socket buffers and flow control make a reader's progress visible in steps of up
+to a few megabytes, so keep the timeouts at several seconds or more. When one expires, the read or write fails
+with an error wrapping `os.ErrDeadlineExceeded`, the request context is canceled, and the connection (HTTP/1.1)
+or stream (HTTP/2, HTTP/3) is closed.
 
 `ReadTimeout` bounds reading the whole request, body included, and `WriteTimeout` writing the whole response.
 Both are off by default because a fixed limit breaks large uploads and long streams; set them when neither is

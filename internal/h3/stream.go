@@ -520,7 +520,7 @@ func (r *streamReader) Read(p []byte) (int, error) {
 }
 
 // stallChunk splits long writes, so a stall timeout measures a client that stopped reading rather than how long
-// a large response takes: a client must accept stallChunk bytes per WriteStallTimeout.
+// a large response takes. The client still grants flow-control window in larger steps.
 const stallChunk = 64 << 10
 
 // writeStream writes p to the stream, watching each chunk with writeStall.

@@ -120,7 +120,9 @@ func TestH1WriteStall(t *testing.T) {
 // TestH1SlowReaderIsNotAStall sends large responses to a client that reads steadily but slower than the stall
 // timeout would allow for the whole transfer: one large Write, and a file sent with sendfile.
 func TestH1SlowReaderIsNotAStall(t *testing.T) {
-	const size = 4 << 20
+	// Linux wakes a blocked writer only once about half of a socket send buffer of several MB has drained, so
+	// the stall timeout must exceed that wait at the client's pace, and the transfer must outlast the timeout.
+	const size, stall = 8 << 20, 2 * time.Second
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "big"), make([]byte, size), 0o600); err != nil {
 		t.Fatal(err)
@@ -135,7 +137,7 @@ func TestH1SlowReaderIsNotAStall(t *testing.T) {
 		if _, err := w.Write(make([]byte, size)); err != nil {
 			t.Errorf("write to a slow reader: %v", err)
 		}
-	}, func(s *Server) { s.WriteStallTimeout = testStall })
+	}, func(s *Server) { s.WriteStallTimeout = stall })
 	for _, path := range []string{"/write", "/big"} {
 		t.Run(path, func(t *testing.T) {
 			nc, err := net.Dial("tcp", ts.addr)
@@ -147,7 +149,7 @@ func TestH1SlowReaderIsNotAStall(t *testing.T) {
 				_ = tcp.SetReadBuffer(64 << 10) // keep the kernel from buffering the whole response
 			}
 			_, _ = io.WriteString(nc, "GET "+path+" HTTP/1.1\r\nHost: h\r\n\r\n")
-			// About 3 MB/s takes over a second, several stall timeouts, but each 64 KiB arrives in time.
+			// About 3 MB/s takes over 2.5 s, longer than the stall timeout, but the client never stops reading.
 			resp, err := http.ReadResponse(bufio.NewReaderSize(slowReader{nc, 32 << 10, 10 * time.Millisecond}, 64<<10), nil)
 			if err != nil {
 				t.Fatal(err)
