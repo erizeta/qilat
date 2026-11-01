@@ -378,6 +378,8 @@ func TestServerRejectsMalformed(t *testing.T) {
 		{"expectation", "GET / HTTP/1.1\r\nHost: h\r\nExpect: nope\r\n\r\n", 417},
 		{"header too large", "GET / HTTP/1.1\r\nHost: h\r\nX: " + strings.Repeat("a", 2000) + "\r\n\r\n", 431},
 		{"invalid target", "GET /a%zz HTTP/1.1\r\nHost: h\r\n\r\n", 400},
+		{"bare percent", "GET /% HTTP/1.1\r\nHost: h\r\n\r\n", 400},
+		{"short escape", "GET /a%2 HTTP/1.1\r\nHost: h\r\n\r\n", 400},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
