@@ -806,14 +806,17 @@ func (c *Conn) stallStream(st *stream) {
 	c.mu.Lock()
 	live := c.streams[st.id] == st && !st.reset
 	if live {
-		// The context is canceled before the waiting read wakes, so the handler sees both together.
+		// The context is canceled before the waiting read wakes, so the handler sees both together, and the
+		// stream is marked reset before the handler can return, so closing it does not send its own RST_STREAM.
 		st.stalled = true
 		st.x.Cancel()
 		st.body.fail(errStreamStalled)
+		c.resetLocked(st)
+		c.rememberReset(st.id)
 	}
 	c.mu.Unlock()
 	if live {
-		c.resetStream(st.id, ErrCodeCancel)
+		_ = c.writeControl(c.ctrl, func(b []byte) []byte { return appendRST(b, st.id, ErrCodeCancel) })
 	}
 }
 
