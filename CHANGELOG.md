@@ -20,7 +20,8 @@ changes, each listed with what to change.
   or has its stream reset (HTTP/2, HTTP/3); before, the request waited without limit. To keep the old behavior,
   set `ReadStallTimeout` and `WriteStallTimeout` to a negative value.
 - With `WriteStallTimeout` set, HTTP/1.1 and HTTP/3 send long writes in 64 KiB pieces, and HTTP/1.1 sends
-  files the same way, so a client must accept at least 64 KiB per timeout. Files are still sent with sendfile.
+  files the same way, so the timeout measures a client that stopped reading rather than the length of a
+  transfer. Files are still sent with sendfile.
 
 ### Security
 

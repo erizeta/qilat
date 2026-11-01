@@ -124,8 +124,12 @@ func TestWriteStall(t *testing.T) {
 }
 
 func TestSlowReaderIsNotAStall(t *testing.T) {
-	const size = 1 << 20
-	conn := startServer(t, stallConfig(func(x *fakeExchange, w exchange.ResponseSink) error {
+	const size = 2 << 20
+	// The client grants send window only after consuming a part of it, so the server waits that long for more
+	// window even while the client reads; the stall timeout must leave room for it.
+	cfg := stallConfig(nil)
+	cfg.WriteStallTimeout = 4 * testStall
+	serve := func(x *fakeExchange, w exchange.ResponseSink) error {
 		if err := w.WriteHeader(200, fields{}, size); err != nil {
 			return err
 		}
@@ -133,10 +137,12 @@ func TestSlowReaderIsNotAStall(t *testing.T) {
 			return err
 		}
 		return w.Finish()
-	}))
+	}
+	cfg.Acquire = func() exchange.Exchange { return newFake(serve) }
+	conn := startServer(t, cfg)
 	str := openStream(t, conn, frame(frameHeaders, encodeFields(getFields...)))
 	_ = str.Close()
-	// 16 KiB every 10 ms takes about 0.65 s, several stall timeouts, but each chunk is taken in time.
+	// 16 KiB every 10 ms takes over 1.3 s, several stall timeouts, but the client never stops reading.
 	var buf [16 << 10]byte
 	n := 0
 	for {

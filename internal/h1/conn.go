@@ -493,7 +493,7 @@ func (c *Conn) socketWriter() io.Writer {
 }
 
 // stallChunk splits long writes and sendfile calls, so a stall timeout measures a client that stopped reading
-// rather than how long a large transfer takes: a client must accept stallChunk bytes per WriteStallTimeout.
+// rather than how long a large transfer takes. The kernel still frees send buffer space in larger steps.
 const stallChunk = 64 << 10
 
 // stallWriter writes to the connection with a fresh write deadline for each chunk.
