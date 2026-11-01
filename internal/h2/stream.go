@@ -32,6 +32,11 @@ type stream struct {
 	declared     int64 // content-length, or -1
 	received     int64 // DATA payload bytes received
 	timer        *time.Timer
+	stalled      bool // reset by a stall timer, so reads and writes report errStreamStalled
+
+	// Owned by the handler, lent by the connection on the first wait for the client to send data or grant send
+	// window, and returned when the stream closes.
+	readStall, writeStall *stallWatch
 
 	expectContinue bool
 }
@@ -44,6 +49,23 @@ func newStream(c *Conn, id uint32, x exchange.Exchange) *stream {
 	st.priority.Store(httpfields.DefaultUrgency << 1)
 	st.waiter = newWaiter(id, &st.priority)
 	return st
+}
+
+// beginStall starts watching a wait for the client with *w, borrowing a watch on the first wait.
+func (st *stream) beginStall(w **stallWatch, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	if *w == nil {
+		*w = st.c.takeWatch(st, d)
+	}
+	(*w).Begin()
+}
+
+func endStall(w *stallWatch) {
+	if w != nil {
+		w.End()
+	}
 }
 
 func (st *stream) setPriority(urgency uint32, incremental bool) {
@@ -124,8 +146,12 @@ func (b *body) Read(p []byte) (int, error) {
 		st.sink.sendContinue()
 	}
 	b.mu.Lock()
-	for len(b.chunks) == 0 && b.err == nil && !b.eof {
-		b.cond.Wait()
+	if len(b.chunks) == 0 && b.err == nil && !b.eof {
+		st.beginStall(&st.readStall, st.c.cfg.ReadStallTimeout)
+		for len(b.chunks) == 0 && b.err == nil && !b.eof {
+			b.cond.Wait()
+		}
+		endStall(st.readStall)
 	}
 	// Data received before the body limit is still delivered; a reset discards it.
 	if b.err != nil && !b.tooBig || len(b.chunks) == 0 {

@@ -40,6 +40,59 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## v0.2.0: stall timeouts
+
+The same comparisons as M8 after adding `ReadStallTimeout` and `WriteStallTimeout`, which are on by default. Same
+machine, Go, and dependency versions as M8, `-benchtime 1s -count 5`, medians. Raw output:
+[`v0.2.0-h1.txt`](results/v0.2.0-h1.txt), [`v0.2.0-h2c.txt`](results/v0.2.0-h2c.txt),
+[`v0.2.0-h3.txt`](results/v0.2.0-h3.txt), [`v0.2.0-client.txt`](results/v0.2.0-client.txt).
+The net/http, fasthttp, and quic-go results moved between −7% and +3% from M8, so the machine was in the same
+state.
+
+### HTTP/1.1 server, time per request (lower is better)
+
+| Scenario | Mode | net/http | fasthttp | qilat | qilat vs M8 | qilat allocs |
+|---|---|---|---|---|---|---|
+| plaintext | inmem | 934 ns | 241 ns | 242 ns | +2.8% | 0 |
+| json-1kb | inmem | 969 ns | 252 ns | 261 ns | +6.2% | 0 |
+| headers-20 | inmem | 1.92 µs | **352 ns** | 421 ns | +1.6% | 0 |
+| upload-64kb | inmem | 1.27 µs | 897 ns | **769 ns** | +3.0% | 1 (handler) |
+| plaintext | pipeline16 | 2.00 µs | 373 ns | **338 ns** | −1.4% | 0 |
+| json-1kb | pipeline16 | 1.94 µs | 760 ns | **696 ns** | −1.8% | 0 |
+| headers-20 | pipeline16 | 2.87 µs | 662 ns | **517 ns** | −0.1% | 0 |
+
+### HTTP/2 (H2C, net/http client) and HTTP/3 (quic-go client)
+
+| Scenario | net/http H2C | qilat H2C | quic-go/http3 | qilat H3 |
+|---|---|---|---|---|
+| plaintext | 12.6 µs | **7.98 µs** | 15.0 µs | **6.65 µs** ³ |
+| json-1kb | 15.2 µs | **10.2 µs** | 19.5 µs | **7.49 µs** ³ |
+| headers-20 | 22.1 µs | **13.5 µs** | 24.0 µs | **8.57 µs** ³ |
+| upload-64kb | 49.7 µs | **27.2 µs** | 240 µs | 230 µs |
+
+Allocations are unchanged from M8 within one per request: H2C 53–106 (qilat), H3 128–759 (qilat).
+
+### HTTP/1.1 client
+
+| Scenario | net/http | fasthttp | qilat | allocs (net/http / fasthttp / qilat) |
+|---|---|---|---|---|
+| plaintext | 6.03 µs | **5.69 µs** | 5.77 µs | 48 / 0 / 0 |
+| json-1kb | 6.22 µs | **5.70 µs** | 5.78 µs | 48 / 0 / 0 |
+| headers-20 | 7.10 µs | 5.74 µs | **5.67 µs** | 78 / 0 / 0 |
+| upload-64kb | 12.4 µs | **9.14 µs** | 9.16 µs | 58 / 1 / 1 |
+
+### Observations
+
+- The stall timeouts add no allocations. Their cost is a clock read per socket read of a request body on
+  HTTP/1.1, and a timer update when a stall deadline is due for renewal. Interleaved runs against v0.1.0 on this
+  machine put it at about +7% for `upload-64kb` in `inmem` and within noise elsewhere; the table above, taken
+  against M8, shows +1.6% to +6.2% in `inmem`. Setting both timeouts to a negative value removes it.
+- ³ qilat's small HTTP/3 requests take about 40% less time than in M8, and 3 fewer allocations, but not because
+  the server does less work. Bypassing the write stall watchdog brings the numbers back to v0.1.0's (10.4 µs for
+  plaintext measured the same day), although the watchdog only adds work. The likely cause is that each pooled
+  stream keeps a 60-second timer armed, which changes how the Go scheduler wakes goroutines in this in-process,
+  loopback benchmark. Do not read it as a speedup; M8's HTTP/3 numbers remain the reference.
+
 ## M8: final comparison (v0.1.0)
 
 Rerun of every comparison after the M8 hardening changes, on the same machine as M2 (Apple M5, 10 cores,
