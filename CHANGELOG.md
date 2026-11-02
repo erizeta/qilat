@@ -7,6 +7,12 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+### Changed
+
+- On HTTP/1.1, a response released or closed with its body unread no longer costs its connection: the rest of
+  the body is drained in the background and the connection reused, when it arrives within 50 ms and 256 KiB.
+  Before, only a rest already buffered was discarded, and larger or chunked bodies closed the connection.
+
 ## [0.2.0] - 2026-11-01
 
 Clients that stop sending a request body or reading a response are now disconnected after 60 s; set both stall

@@ -28,6 +28,13 @@ var (
 
 const maxInformational = 5
 
+// An unread body is drained in the background on Close, so its connection can be reused, when the rest of
+// the body arrives within drainTime and drainBytes; past either, a new connection costs less (as in net/http).
+const (
+	drainTime  = 50 * time.Millisecond
+	drainBytes = 256 << 10
+)
+
 // ClientConfig holds the client settings for HTTP/1.1 connections, with defaults already resolved.
 type ClientConfig struct {
 	MaxHeaderBytes        int
@@ -473,8 +480,24 @@ func (b *clientBody) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	var n int
-	var err error
+	n, err := b.readRaw(p)
+	if errors.Is(err, io.EOF) {
+		b.eof = true
+		b.c.finish(b.keepAlive)
+		return n, io.EOF
+	}
+	if err != nil {
+		if b.c.canceled.Load() {
+			err = context.Cause(b.c.ctx)
+		}
+		b.err = err
+		b.c.finish(false)
+	}
+	return n, err
+}
+
+// readRaw reads body bytes, returning io.EOF at the end of the body, without handing the connection back.
+func (b *clientBody) readRaw(p []byte) (n int, err error) {
 	switch b.mode {
 	case clientBodyLength:
 		n, err = b.c.br.Read(p[:min(int64(len(p)), b.remaining)])
@@ -488,18 +511,6 @@ func (b *clientBody) Read(p []byte) (int, error) {
 		n, err = b.readChunked(p)
 	case clientBodyClose:
 		n, err = b.c.br.Read(p)
-	}
-	if errors.Is(err, io.EOF) {
-		b.eof = true
-		b.c.finish(b.keepAlive)
-		return n, io.EOF
-	}
-	if err != nil {
-		if b.c.canceled.Load() {
-			err = context.Cause(b.c.ctx)
-		}
-		b.err = err
-		b.c.finish(false)
 	}
 	return n, err
 }
@@ -568,16 +579,74 @@ func (b *clientBody) readTrailers() error {
 	}
 }
 
-// Close abandons the rest of the body. The connection is reused only when the rest is already buffered.
+// Close abandons the rest of the body. A rest already buffered is discarded and the connection reused; a short
+// rest still to come is drained in the background first; otherwise the connection is closed.
 func (b *clientBody) Close() error {
 	if b.eof || b.err != nil {
 		return nil
 	}
-	reusable := b.keepAlive && b.mode == clientBodyLength && b.remaining <= int64(b.c.br.Buffered())
-	if reusable {
-		_, _ = b.c.br.Discard(int(b.remaining))
-	}
 	b.err = errRespBodyClosed
-	b.c.finish(reusable)
+	c := b.c
+	if b.keepAlive && b.mode == clientBodyLength && b.remaining <= int64(c.br.Buffered()) {
+		_, _ = c.br.Discard(int(b.remaining))
+		c.finish(true)
+		return nil
+	}
+	if !b.drainable() {
+		c.finish(false)
+		return nil
+	}
+	// The response is released after Close, often with its context canceled: from here the drain owns the
+	// connection, bounded by its own deadline, and trailers have nowhere to go.
+	if c.stop != nil {
+		if !c.stop() {
+			c.stop = nil
+			c.finish(false) // a cancellation already under way may still poison the deadline
+			return nil
+		}
+		c.stop = nil
+	}
+	b.resp = discardTrailers{}
+	go b.drain()
 	return nil
 }
+
+func (b *clientBody) drainable() bool {
+	c := b.c
+	switch {
+	case !b.keepAlive || c.writing || c.canceled.Load() || c.broken:
+		return false
+	case b.mode == clientBodyLength:
+		return b.remaining <= drainBytes
+	}
+	return b.mode == clientBodyChunked
+}
+
+// drain reads the rest of the body, then hands the connection back for reuse if it reached the end in time.
+func (b *clientBody) drain() {
+	c := b.c
+	_ = c.nc.SetReadDeadline(time.Now().Add(drainTime))
+	var buf [4 << 10]byte
+	for read := 0; read <= drainBytes; {
+		n, err := b.readRaw(buf[:])
+		read += n
+		if errors.Is(err, io.EOF) {
+			_ = c.nc.SetReadDeadline(time.Time{})
+			b.eof = true
+			c.finish(b.keepAlive)
+			return
+		}
+		if err != nil {
+			break
+		}
+	}
+	c.finish(false)
+}
+
+// discardTrailers receives the trailers of a body drained after its response was released.
+type discardTrailers struct{}
+
+func (discardTrailers) SetStatus(int, int, int)      {}
+func (discardTrailers) AddHeader(_, _ []byte) error  { return nil }
+func (discardTrailers) AddTrailer(_, _ []byte) error { return nil }
+func (discardTrailers) SetBody(io.ReadCloser, int64) {}

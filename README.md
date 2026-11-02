@@ -611,8 +611,10 @@ func main() {
   its `ma`). If QUIC cannot connect within `HTTP3DialTimeout`, for example because UDP is blocked, the request
   falls back to TCP and the host stays on TCP for five minutes.
 - `resp.Body` streams the body; `resp.ReadBody()` reads all of it into a reused buffer, up to
-  `MaxResponseBodySize` (64 MiB by default). Read to EOF or release the response to free the connection.
-  Response headers are limited by `MaxResponseHeaderBytes` (64 KiB by default) on every protocol.
+  `MaxResponseBodySize` (64 MiB by default). Release the response when done, read or not: on HTTP/1.1, the
+  rest of an unread body is drained in the background so the connection can be reused, if it arrives within
+  50 ms and 256 KiB, as in net/http since Go 1.27. Response headers are limited by `MaxResponseHeaderBytes`
+  (64 KiB by default) on every protocol.
 - `client.Do(req.WithContext(ctx), resp)` or `Client.Timeout` stops the request even in the middle of the body:
   the HTTP/1.1 connection is closed, and the HTTP/2 or HTTP/3 stream is reset.
 - Redirects are followed up to 10 times; `CheckRedirect` can stop earlier. Credentials (`Authorization`,
