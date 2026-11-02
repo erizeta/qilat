@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -664,5 +665,116 @@ func TestClientInformationalLimit(t *testing.T) {
 		if (err == nil) != tt.ok {
 			t.Fatalf("%d informational responses: %v", tt.n, err)
 		}
+	}
+}
+
+// statusOnly sends n requests that look only at the status and release the response with its body unread.
+func statusOnly(t *testing.T, c *Client, url string, n int) {
+	t.Helper()
+	for range n {
+		resp := AcquireResponse()
+		if err := c.Get(url, resp); err != nil || resp.StatusCode() != 200 {
+			t.Fatalf("status %d: %v", resp.StatusCode(), err)
+		}
+		ReleaseResponse(resp)
+		time.Sleep(10 * time.Millisecond) // well within the drain limits; the next request finds the connection idle
+	}
+}
+
+func TestClientDrainsUnreadBody(t *testing.T) {
+	body := strings.Repeat("x", 64<<10)
+	for _, tt := range []struct {
+		name      string
+		handler   http.HandlerFunc
+		timeout   time.Duration
+		wantConns int32
+	}{
+		{"content-length", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			_, _ = io.WriteString(w, body)
+		}, 0, 1},
+		{"chunked with trailer", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Trailer", "X-Sum")
+			_, _ = io.WriteString(w, body)
+			w.(http.Flusher).Flush()
+			w.Header().Set("X-Sum", "1")
+		}, 0, 1},
+		{"client timeout canceled on release", func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, body)
+		}, 5 * time.Second, 1},
+		{"over the drain size", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", strconv.Itoa(drainTestTooBig))
+			_, _ = io.WriteString(w, strings.Repeat("x", drainTestTooBig))
+		}, 0, 5},
+		{"connection close", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Connection", "close")
+			_, _ = io.WriteString(w, body)
+		}, 0, 5},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			checkGoroutines(t)
+			srv, conns := countingTLSServer(t, false, tt.handler)
+			c, _ := insecureTransport(t)
+			c.Timeout = tt.timeout
+			statusOnly(t, c, srv.URL, 5)
+			if n := conns.Load(); n != tt.wantConns {
+				t.Fatalf("%d connections for 5 requests, want %d", n, tt.wantConns)
+			}
+		})
+	}
+}
+
+const drainTestTooBig = 300 << 10 // over the 256 KiB drain limit
+
+// TestClientDrainGivesUpOnSlowBody stops draining a body the server stops sending, and closes the connection.
+func TestClientDrainGivesUpOnSlowBody(t *testing.T) {
+	checkGoroutines(t)
+	srv, conns := countingTLSServer(t, false, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100000")
+		_, _ = io.WriteString(w, strings.Repeat("x", 50000))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done() // the rest never comes
+	})
+	c, _ := insecureTransport(t)
+	statusOnly(t, c, srv.URL, 3)
+	if n := conns.Load(); n != 3 {
+		t.Fatalf("%d connections for 3 requests to a stalled body, want 3", n)
+	}
+}
+
+// TestClientDrainedTrailersStayOut checks that trailers read while draining a released response do not reach the
+// response that reuses it, and that closing idle connections during a drain is safe.
+func TestClientDrainedTrailersStayOut(t *testing.T) {
+	checkGoroutines(t)
+	srv, _ := countingTLSServer(t, false, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/plain" {
+			_, _ = io.WriteString(w, "ok")
+			return
+		}
+		w.Header().Set("Trailer", "X-Sum")
+		w.(http.Flusher).Flush()
+		time.Sleep(20 * time.Millisecond) // the drain is under way when the next request starts
+		_, _ = io.WriteString(w, strings.Repeat("x", 64<<10))
+		w.Header().Set("X-Sum", "1")
+	})
+	c, tr := insecureTransport(t)
+	resp := AcquireResponse()
+	if err := c.Get(srv.URL+"/trailer", resp); err != nil {
+		t.Fatal(err)
+	}
+	ReleaseResponse(resp) // drains in the background
+	tr.CloseIdleConnections()
+
+	resp = AcquireResponse() // most likely the same object
+	defer ReleaseResponse(resp)
+	if err := c.Get(srv.URL+"/plain", resp); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := resp.ReadBody(); err != nil || string(b) != "ok" {
+		t.Fatalf("body %q: %v", b, err)
+	}
+	time.Sleep(100 * time.Millisecond) // past the drain
+	if n := resp.Trailer().Len(); n != 0 {
+		t.Fatalf("response got %d trailer fields from a drained one", n)
 	}
 }
