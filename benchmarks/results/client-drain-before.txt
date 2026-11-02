@@ -1,0 +1,16 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkClientStatusOnly/nethttp-10         	    2000	     59312 ns/op	         0.01650 conns/op	    8946 B/op	     117 allocs/op
+BenchmarkClientStatusOnly/nethttp-10         	    2000	     52595 ns/op	         0.01350 conns/op	    8402 B/op	     114 allocs/op
+BenchmarkClientStatusOnly/nethttp-10         	    2000	     49787 ns/op	         0.008500 conns/op	    7580 B/op	     110 allocs/op
+BenchmarkClientStatusOnly/nethttp-10         	    2000	     76149 ns/op	         0.03150 conns/op	   11669 B/op	     130 allocs/op
+BenchmarkClientStatusOnly/nethttp-10         	    2000	     50693 ns/op	         0.01300 conns/op	    8302 B/op	     113 allocs/op
+BenchmarkClientStatusOnly/qilat-10           	    2000	   1105197 ns/op	         1.000 conns/op	  138007 B/op	     912 allocs/op
+BenchmarkClientStatusOnly/qilat-10           	    2000	   1164902 ns/op	         1.000 conns/op	  137674 B/op	     913 allocs/op
+BenchmarkClientStatusOnly/qilat-10           	    2000	   1153619 ns/op	         1.000 conns/op	  137713 B/op	     914 allocs/op
+BenchmarkClientStatusOnly/qilat-10           	    2000	   1218275 ns/op	         1.000 conns/op	  137643 B/op	     913 allocs/op
+BenchmarkClientStatusOnly/qilat-10           	    2000	   1146455 ns/op	         1.000 conns/op	  137875 B/op	     914 allocs/op
+PASS
+ok  	github.com/erizeta/qilat/benchmarks	12.440s
