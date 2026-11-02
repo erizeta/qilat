@@ -40,6 +40,32 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## Unreleased: client drains unread HTTP/1.1 bodies
+
+`BenchmarkClientStatusOnly` sends sequential HTTPS requests over HTTP/1.1 that read only the status and release
+the response with its 64 KiB body unread, against a net/http server in the same process. It is the pattern behind
+the "nearly 5x faster" HTTP client example for Go 1.27. Same machine as M2, Go 1.27.3, `-benchtime 2000x
+-count 5`, medians. Raw output: [`client-drain-before.txt`](results/client-drain-before.txt) (v0.2.0) and
+[`client-drain-after.txt`](results/client-drain-after.txt).
+
+```sh
+cd benchmarks && go test -run '^$' -bench 'BenchmarkClientStatusOnly' -benchmem -benchtime 2000x -count 5 .
+```
+
+| Client | Time per request | New connections per request | allocs/op |
+|---|---|---|---|
+| net/http (Go 1.27, drains in the background) | 54.5 µs | 0.017 | 117 |
+| qilat v0.2.0 | 1.15 ms | 1.000 | 913 |
+| qilat with background drain | **43.9 µs** | **0.0025** | **82** |
+
+- In v0.2.0, a body longer than the read buffer closed its connection, so every request paid a new TCP
+  connection and TLS handshake. The client now drains up to 256 KiB within 50 ms in the background, as net/http
+  does since Go 1.27, and reuses the connection.
+- A request sent while the previous body is still draining finds no idle connection and opens one; that is the
+  remaining 0.25% of requests here (0.017 for net/http).
+- allocs/op is process-wide and includes the net/http server's TLS and request handling; the client itself
+  still allocates nothing per request on a reused connection.
+
 ## v0.2.0: stall timeouts
 
 The same comparisons as M8 after adding `ReadStallTimeout` and `WriteStallTimeout`, which are on by default. Same
