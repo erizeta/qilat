@@ -40,6 +40,38 @@ HTTP/1.1 modes use a minimal shared client (`h1client_test.go`) so the client ad
 H2C uses the net/http client, so its allocations are included in the H2C numbers.
 `allocs/op` is process-wide, so it includes the client.
 
+## Unreleased: HTTP/1.1 request header and response write tuning
+
+The HTTP/1.1 parser validates and lowercases header names in one pass and hands fields to the core without a
+second validation pass, header values received from a peer are no longer sanitized after validation, response
+header names are written without a per-byte call, and a response with a declared Content-Length is written
+without buffering. Same machine as M2, Go 1.27.3. The before and after binaries ran interleaved, 8 rounds of
+`-benchtime 3s`, so machine drift affects both equally; medians. Raw output:
+[`m10-before.txt`](results/m10-before.txt) (v0.2.1) and [`m10-after.txt`](results/m10-after.txt).
+
+| Scenario | Mode | fasthttp | qilat v0.2.1 | qilat | Change |
+|---|---|---|---|---|---|
+| headers-20 | inmem | 343 ns | 429 ns | **347 ns** | **−19.1%** |
+| headers-20 | pipeline16 | 645 ns | 521 ns | **450 ns** | **−13.6%** |
+| plaintext | inmem | 239 ns | 244 ns | 245 ns | ~ |
+| json-1kb | inmem | 236 ns | 254 ns | 257 ns | ~ |
+| plaintext | pipeline16 | 350 ns | 347 ns | 344 ns | ~ |
+| json-1kb | pipeline16 | 739 ns | 710 ns | 710 ns | ~ |
+| plaintext, json-1kb, headers-20 | keepalive | — | 5.75–5.86 µs | 5.82–5.84 µs | ~ to +1.2% |
+| plaintext, json-1kb, headers-20 | H2C | — | 7.9–13.6 µs | 7.9–13.6 µs | ~ |
+
+fasthttp is the after run. "~" means no difference at p < 0.05. allocs/op did not change in any benchmark.
+
+- headers-20 in memory is now within noise of fasthttp (+1.4%, both ±4–5%). The rest is the cost of validating
+  every header value and copying fields into `Header`; fasthttp keeps the raw header block and parses lazily.
+- json-1kb is 9% slower than fasthttp in this run; in an earlier interleaved run of the same change it was
+  within 3%, so treat the difference as run-to-run spread. It sets no Content-Length, so it does not use the
+  unbuffered write.
+- Qinetic's `BenchmarkCompare/inmem/*` built against this change showed no difference at p < 0.05 except
+  param (−1.2%), over 6 interleaved rounds. Qinetic writes its small body once after `WriteHeader`, so the
+  unbuffered write saves only one small copy, and its gap to Fiber does not come from these paths.
+- Not yet measured on Linux.
+
 ## Unreleased: client drains unread HTTP/1.1 bodies
 
 `BenchmarkClientStatusOnly` sends sequential HTTPS requests over HTTP/1.1 that read only the status and release

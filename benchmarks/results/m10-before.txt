@@ -1,0 +1,284 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9746542	       349.4 ns/op	 114.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	15777940	       218.3 ns/op	 183.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4770344	       728.4 ns/op	  48.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	15029085	       244.2 ns/op	 143.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 5694276	       638.6 ns/op	1459.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	10416774	       321.3 ns/op	2900.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10164033	       343.5 ns/op	 116.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	15710827	       241.2 ns/op	 165.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 4994163	       708.8 ns/op	  49.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	14892630	       247.2 ns/op	 141.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 7019415	       523.1 ns/op	1781.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8101087	       426.6 ns/op	2184.94 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  621496	      5803 ns/op	   6.89 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  567675	      5858 ns/op	   5.97 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  569839	      5731 ns/op	 162.62 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  452227	      7956 ns/op	   5.03 MB/s	    6050 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  360264	     10169 ns/op	   3.44 MB/s	    8944 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  264838	     13658 ns/op	  68.24 MB/s	   11443 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9832731	       352.4 ns/op	 113.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	16213336	       238.7 ns/op	 167.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4221676	       741.0 ns/op	  47.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	15318915	       244.2 ns/op	 143.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 5871368	       623.5 ns/op	1494.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	 9737785	       346.5 ns/op	2690.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10085055	       373.5 ns/op	 107.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	13242174	       240.9 ns/op	 166.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5074665	       700.1 ns/op	  50.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	15552213	       243.8 ns/op	 143.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 7156402	       512.2 ns/op	1819.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8715942	       409.1 ns/op	2278.13 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  536104	      5858 ns/op	   6.83 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  589968	      5878 ns/op	   5.95 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  566006	      5805 ns/op	 160.56 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  465216	      8118 ns/op	   4.93 MB/s	    6051 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  344341	     10956 ns/op	   3.19 MB/s	    8959 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  243648	     13688 ns/op	  68.09 MB/s	   11446 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9268728	       360.3 ns/op	 111.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	14535322	       237.3 ns/op	 168.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4119396	       741.8 ns/op	  47.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	14985505	       238.2 ns/op	 146.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 5171520	       656.6 ns/op	1419.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	10674668	       348.6 ns/op	2673.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10025637	       353.8 ns/op	 113.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	13688997	       244.5 ns/op	 163.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5144908	       743.5 ns/op	  47.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	14744522	       260.1 ns/op	 134.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 6874232	       562.2 ns/op	1657.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8455624	       433.0 ns/op	2152.49 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  537868	      5755 ns/op	   6.95 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  588884	      5830 ns/op	   6.00 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  587722	      5676 ns/op	 164.19 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  414123	      8711 ns/op	   4.59 MB/s	    6056 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  357882	     11116 ns/op	   3.15 MB/s	    8961 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  203260	     14972 ns/op	  62.25 MB/s	   11462 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9263634	       347.8 ns/op	 115.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	15816007	       222.8 ns/op	 179.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4102281	       737.4 ns/op	  47.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	15822382	       221.8 ns/op	 157.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 4831417	       630.7 ns/op	1477.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	10915088	       317.1 ns/op	2939.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10579567	       336.6 ns/op	 118.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	15046575	       234.5 ns/op	 170.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5077660	       700.4 ns/op	  49.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	14614650	       249.9 ns/op	 140.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 6963979	       509.4 ns/op	1829.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8271097	       422.2 ns/op	2207.52 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  516301	      5860 ns/op	   6.83 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  521618	      5862 ns/op	   5.97 MB/s	       3 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  573334	      5674 ns/op	 164.26 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  456907	      7818 ns/op	   5.12 MB/s	    6050 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  364374	     10136 ns/op	   3.45 MB/s	    8944 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  278954	     13249 ns/op	  70.34 MB/s	   11431 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/inmem-10              	
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	10071664	       350.1 ns/op	 114.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	15936969	       231.3 ns/op	 172.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4193691	       743.1 ns/op	  47.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	15852032	       233.8 ns/op	 149.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 4777995	       636.1 ns/op	1465.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	11025772	       329.0 ns/op	2832.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10548541	       340.0 ns/op	 117.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	15956703	       250.3 ns/op	 159.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5043250	       707.5 ns/op	  49.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	14376788	       257.0 ns/op	 136.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 6995522	       517.1 ns/op	1802.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8491765	       421.9 ns/op	2208.97 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  617301	      5817 ns/op	   6.88 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  580122	      5861 ns/op	   5.97 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  568452	      5691 ns/op	 163.78 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  443533	      7877 ns/op	   5.08 MB/s	    6050 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  360711	     10153 ns/op	   3.45 MB/s	    8947 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  268966	     13311 ns/op	  70.02 MB/s	   11431 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9390866	       349.7 ns/op	 114.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	15860054	       231.4 ns/op	 172.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4139508	       741.2 ns/op	  47.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	16005292	       234.7 ns/op	 149.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 4792004	       711.4 ns/op	1310.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	10679916	       326.3 ns/op	2856.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10283167	       355.6 ns/op	 112.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	13772384	       266.2 ns/op	 150.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5015576	       710.1 ns/op	  49.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	13770668	       254.2 ns/op	 137.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 6935488	       537.4 ns/op	1734.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8458908	       437.8 ns/op	2128.60 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  544393	      5866 ns/op	   6.82 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  573774	      5844 ns/op	   5.99 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  580744	      5822 ns/op	 160.08 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  398733	      7891 ns/op	   5.07 MB/s	    6050 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  345294	     10063 ns/op	   3.48 MB/s	    8946 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  284196	     13414 ns/op	  69.48 MB/s	   11433 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9424863	       351.1 ns/op	 113.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	15557247	       230.0 ns/op	 173.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4111818	       743.2 ns/op	  47.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	14654158	       245.4 ns/op	 142.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 5416765	       632.5 ns/op	1473.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	10212598	       328.8 ns/op	2834.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10358862	       350.9 ns/op	 114.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	15057009	       243.3 ns/op	 164.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5008284	       711.7 ns/op	  49.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	14406924	       254.0 ns/op	 137.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 5720896	       531.7 ns/op	1752.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8596201	       432.0 ns/op	2157.52 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  521673	      5836 ns/op	   6.85 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  621652	      5856 ns/op	   5.98 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  574584	      5803 ns/op	 160.62 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  451467	      7941 ns/op	   5.04 MB/s	    6049 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  362636	     10746 ns/op	   3.26 MB/s	    8949 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  269214	     13746 ns/op	  67.80 MB/s	   11447 B/op	     106 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/fasthttp/plaintext/pipeline16-10         	 9906361	       355.1 ns/op	 112.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/plaintext/inmem-10              	15512482	       231.9 ns/op	 172.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/pipeline16-10          	 4134264	       742.1 ns/op	  47.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/json-1kb/inmem-10               	15235882	       237.8 ns/op	 147.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/pipeline16-10        	 4773313	       640.3 ns/op	1455.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/fasthttp/headers-20/inmem-10             	10989640	       331.2 ns/op	2813.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/pipeline16-10            	10545130	       341.7 ns/op	 117.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/plaintext/inmem-10                 	14799633	       244.7 ns/op	 163.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/pipeline16-10             	 5024259	       714.6 ns/op	  48.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/inmem-10                  	14154130	       256.9 ns/op	 136.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/pipeline16-10           	 6886659	       518.5 ns/op	1797.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/inmem-10                	 8265835	       441.2 ns/op	2112.36 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH1/qilat/plaintext/keepalive-10         	  561528	      5770 ns/op	   6.93 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/json-1kb/keepalive-10          	  580255	      5985 ns/op	   5.85 MB/s	       2 B/op	       0 allocs/op
+BenchmarkH1/qilat/headers-20/keepalive-10        	  581637	      5773 ns/op	 161.43 MB/s	       2 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/erizeta/qilat/benchmarks
+cpu: Apple M5
+BenchmarkH2C/qilat/plaintext-10         	  459302	      7904 ns/op	   5.06 MB/s	    6051 B/op	      53 allocs/op
+BenchmarkH2C/qilat/json-1kb-10          	  357458	     10319 ns/op	   3.39 MB/s	    8948 B/op	      57 allocs/op
+BenchmarkH2C/qilat/headers-20-10        	  271430	     13572 ns/op	  68.67 MB/s	   11443 B/op	     106 allocs/op
+PASS
