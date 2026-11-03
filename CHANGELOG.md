@@ -7,6 +7,8 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-03
+
 ### Changed
 
 - HTTP/1.1 requests with many headers cost less server CPU: the parser validates each field once and the core
@@ -119,7 +121,8 @@ Found by the pre-release security and code reviews and fixed before the first re
 - `Transport.CloseIdleConnections` racing with the idle timer could panic, and stopped idle reaping for
   HTTP/2 and HTTP/3 connections that were busy at the time.
 
-[Unreleased]: https://github.com/erizeta/qilat/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/erizeta/qilat/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/erizeta/qilat/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/erizeta/qilat/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/erizeta/qilat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/erizeta/qilat/releases/tag/v0.1.0
