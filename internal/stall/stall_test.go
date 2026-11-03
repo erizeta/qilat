@@ -31,21 +31,28 @@ func TestShortWaitsDoNotStall(t *testing.T) {
 	var stalls atomic.Int32
 	w.Init(func() { stalls.Add(1) })
 	w.SetTimeout(d)
+	var long int32
 	for range 20 {
+		start := time.Now()
 		w.Begin()
 		time.Sleep(d / 4)
 		w.End()
+		// A loaded CI runner can oversleep past the timeout, and then a stall is the right answer.
+		if time.Since(start) >= d {
+			long++
+		}
 		time.Sleep(d / 4) // not waiting for the client: never a stall, however long
 	}
 	time.Sleep(2 * d)
-	if n := stalls.Load(); n != 0 {
-		t.Fatalf("%d stalls for waits shorter than the timeout", n)
+	n := stalls.Load()
+	if n > long {
+		t.Fatalf("%d stalls for %d waits that reached the timeout", n, long)
 	}
 	// The Watchdog still works after going idle.
 	w.Begin()
 	time.Sleep(3 * d)
-	if n := stalls.Load(); n != 1 {
-		t.Fatalf("%d stalls for one long wait, want 1", n)
+	if got := stalls.Load() - n; got != 1 {
+		t.Fatalf("%d stalls for one long wait, want 1", got)
 	}
 }
 
