@@ -69,7 +69,7 @@ func (h *Header) SetBytes(name string, value []byte) {
 	mustValidName(name)
 	i := h.index(name)
 	if i < 0 {
-		h.appendField(bytesconv.S2B(name), value)
+		sanitizeValue(h.appendField(bytesconv.S2B(name), value))
 		return
 	}
 	h.fields[i].value = sanitizeValue(append(h.fields[i].value[:0], value...))
@@ -85,7 +85,7 @@ func (h *Header) Add(name, value string) {
 // AddBytes is like [Header.Add] but takes the value as bytes. value is copied.
 func (h *Header) AddBytes(name string, value []byte) {
 	mustValidName(name)
-	h.appendField(bytesconv.S2B(name), value)
+	sanitizeValue(h.appendField(bytesconv.S2B(name), value))
 }
 
 // Del removes every field with the given name.
@@ -133,8 +133,16 @@ func (h *Header) index(name string) int {
 	return -1
 }
 
-// appendField reuses the backing arrays of previously removed fields, so steady-state use does not allocate.
-func (h *Header) appendField(name, value []byte) {
+// appendField copies the field and returns the stored value. It does not sanitize, so callers pass values
+// that are already validated or sanitize the result. Removed fields' backing arrays are reused.
+func (h *Header) appendField(name, value []byte) []byte {
+	f := h.appendRaw(name, value)
+	bytesconv.ToLower(f.name)
+	return f.value
+}
+
+// appendRaw copies the field as is; the name must already be lowercase.
+func (h *Header) appendRaw(name, value []byte) *field {
 	n := len(h.fields)
 	if n < cap(h.fields) {
 		h.fields = h.fields[:n+1]
@@ -142,8 +150,9 @@ func (h *Header) appendField(name, value []byte) {
 		h.fields = append(h.fields, field{})
 	}
 	f := &h.fields[n]
-	f.name = bytesconv.ToLower(append(f.name[:0], name...))
-	f.value = sanitizeValue(append(f.value[:0], value...))
+	f.name = append(f.name[:0], name...)
+	f.value = append(f.value[:0], value...)
+	return f
 }
 
 // delFrom removes fields named name at index start and later, preserving order.
@@ -176,6 +185,12 @@ func (h *Header) addWire(name, value []byte) error {
 	}
 	h.appendField(name, value)
 	return nil
+}
+
+// addValid appends a field whose name the caller has checked is a lowercase token and whose value has no CR,
+// LF, or NUL.
+func (h *Header) addValid(name, value []byte) {
+	h.appendRaw(name, value)
 }
 
 func mustValidName(name string) {

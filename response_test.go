@@ -45,6 +45,22 @@ func TestResponseDeclaredContentLength(t *testing.T) {
 	}
 }
 
+func TestResponseDeclaredLengthSendsHeaderOnFirstWrite(t *testing.T) {
+	sink, err := serve(t, request{}, func(w ResponseWriter, r *Request) {
+		w.Header().Set("Content-Length", "3")
+		_, _ = w.Write([]byte("a"))
+		w.Header().Set("X-Late", "1")
+		_, _ = w.Write([]byte("bc"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sink.headerCalls != 1 || sink.cl != 3 || sink.body.String() != "abc" ||
+		!equalStrings(sink.header, []string{"content-length=3"}) {
+		t.Fatalf("calls %d cl %d body %q header %q", sink.headerCalls, sink.cl, sink.body.String(), sink.header)
+	}
+}
+
 func TestResponseShortBodyFails(t *testing.T) {
 	_, err := serve(t, request{}, func(w ResponseWriter, r *Request) {
 		w.Header().Set("Content-Length", "10")

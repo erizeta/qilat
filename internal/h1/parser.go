@@ -127,11 +127,11 @@ func parseRequest(lr *lineReader, x exchange.Exchange) (reqInfo, error) {
 			return info, errMalformedHeader
 		}
 		name, value := line[:colon], trimOWS(line[colon+1:])
-		if !validFieldValue(value) {
+		if !lowerToken(name) || !validFieldValue(value) {
 			return info, errMalformedHeader
 		}
-		switch {
-		case equalFold(name, "host"):
+		switch string(name) {
+		case "host":
 			if hosts++; hosts > 1 {
 				return info, errDuplicateHost
 			}
@@ -139,7 +139,7 @@ func parseRequest(lr *lineReader, x exchange.Exchange) (reqInfo, error) {
 				return info, errInvalidHost
 			}
 			continue
-		case equalFold(name, "content-length"):
+		case "content-length":
 			if lengths++; lengths > 1 {
 				return info, errDuplicateLength
 			}
@@ -148,7 +148,7 @@ func parseRequest(lr *lineReader, x exchange.Exchange) (reqInfo, error) {
 				return info, errInvalidLength
 			}
 			info.contentLength = n
-		case equalFold(name, "transfer-encoding"):
+		case "transfer-encoding":
 			if encodings++; encodings > 1 {
 				return info, errDuplicateTE
 			}
@@ -157,17 +157,16 @@ func parseRequest(lr *lineReader, x exchange.Exchange) (reqInfo, error) {
 				return info, errUnsupportedTE
 			}
 			info.chunked = true
-		case equalFold(name, "connection"):
+		case "connection":
 			parseConnection(value, &info)
-		case equalFold(name, "expect"):
+		case "expect":
 			if !equalFold(value, "100-continue") {
 				return info, errExpectation
 			}
 			info.expectContinue = info.minor == 1
 		}
-		if x.AddHeader(name, value) != nil {
-			return info, errMalformedHeader
-		}
+		// name is a lowercase token, and validFieldValue is stricter than the core's CR/LF/NUL check.
+		x.AddValidHeader(name, value)
 	}
 	switch {
 	case info.chunked && lengths > 0:
@@ -233,6 +232,32 @@ func parseConnection(v []byte, info *reqInfo) {
 		}
 	}
 }
+
+// lowerToken reports whether b is a token and lowercases it in place. b lies in already consumed read buffer,
+// so folding it here saves the core a second pass over the name.
+func lowerToken(b []byte) bool {
+	for i, c := range b {
+		l := lowerTokenTable[c]
+		if l == 0 {
+			return false
+		}
+		b[i] = l
+	}
+	return len(b) > 0
+}
+
+// lowerTokenTable maps token characters to their lowercase form and everything else to 0.
+var lowerTokenTable = func() (t [256]byte) {
+	for c := range 256 {
+		if isTokenChar(byte(c)) {
+			t[c] = byte(c)
+			if 'A' <= c && c <= 'Z' {
+				t[c] += 'a' - 'A'
+			}
+		}
+	}
+	return t
+}()
 
 // validFieldValue allows visible characters, obs-text, SP, and HTAB (RFC 9110 section 5.5).
 func validFieldValue(v []byte) bool {

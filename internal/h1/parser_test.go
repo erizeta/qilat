@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -57,6 +58,14 @@ func (r *recorder) AddHeader(name, value []byte) error {
 	}
 	r.headers = append(r.headers, [2]string{strings.ToLower(string(name)), string(value)})
 	return nil
+}
+
+// AddValidHeader panics on input the core would have rejected, so the tests and fuzzing check the parser's side.
+func (r *recorder) AddValidHeader(name, value []byte) {
+	if !validToken(name) || string(name) != strings.ToLower(string(name)) || bytes.ContainsAny(value, "\r\n\x00") {
+		panic(fmt.Sprintf("parser passed unvalidated field %q: %q", name, value))
+	}
+	_ = r.AddHeader(name, value)
 }
 
 func (r *recorder) SetBody(io.Reader, int64)                        {}
@@ -153,8 +162,16 @@ func TestParseRequestRejects(t *testing.T) {
 		{"NUL in value", "GET / HTTP/1.1\r\n" + host + "X-A: a\x00b\r\n\r\n", errMalformedHeader},
 		{"no colon", "GET / HTTP/1.1\r\n" + host + "X-A\r\n\r\n", errMalformedHeader},
 		{"empty name", "GET / HTTP/1.1\r\n" + host + ": v\r\n\r\n", errMalformedHeader},
+		{"separator in name", "GET / HTTP/1.1\r\n" + host + "X(A): v\r\n\r\n", errMalformedHeader},
+		{"space in name", "GET / HTTP/1.1\r\n" + host + "X A: v\r\n\r\n", errMalformedHeader},
+		{"DEL in name", "GET / HTTP/1.1\r\n" + host + "X\x7fA: v\r\n\r\n", errMalformedHeader},
+		{"obs-text in name", "GET / HTTP/1.1\r\n" + host + "X\xc3\xa4: v\r\n\r\n", errMalformedHeader},
+		{"NUL in name", "GET / HTTP/1.1\r\n" + host + "X\x00A: v\r\n\r\n", errMalformedHeader},
+		{"invalid name before Host", "GET / HTTP/1.1\r\nX@: v\r\n" + host + "\r\n", errMalformedHeader},
 		{"missing host", "GET / HTTP/1.1\r\n\r\n", errMissingHost},
 		{"duplicate host", "GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n", errDuplicateHost},
+		{"duplicate host mixed case", "GET / HTTP/1.1\r\nHost: a\r\nHOST: b\r\n\r\n", errDuplicateHost},
+		{"CL and TE mixed case", "POST / HTTP/1.1\r\n" + host + "CONTENT-LENGTH: 5\r\nTransfer-ENCODING: chunked\r\n\r\n", errLengthAndChunked},
 		{"invalid host", "GET / HTTP/1.1\r\nHost: a/b\r\n\r\n", errInvalidHost},
 		{"HTTP/1.2", "GET / HTTP/1.2\r\n" + host + "\r\n", errVersion},
 		{"HTTP/2.0", "GET / HTTP/2.0\r\n" + host + "\r\n", errVersion},
@@ -227,7 +244,12 @@ func FuzzParseRequest(f *testing.F) {
 		if err != nil {
 			return
 		}
-		req, stdErr := http.ReadRequest(bufio.NewReader(strings.NewReader(raw)))
+		// The parser skips empty lines before the request line (RFC 9112 section 2.2); http.ReadRequest does not.
+		stdRaw := raw
+		for strings.HasPrefix(stdRaw, "\r\n") {
+			stdRaw = stdRaw[2:]
+		}
+		req, stdErr := http.ReadRequest(bufio.NewReader(strings.NewReader(stdRaw)))
 		// The parser hands the target to the core, whose URI parser rejects what net/url does (FuzzURI checks
 		// that), so a server answers such a request 400; the recorder here accepts any target.
 		var urlErr *url.Error

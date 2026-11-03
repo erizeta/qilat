@@ -15,7 +15,8 @@ import (
 // ResponseWriter is used by a [Handler] to construct a response. It must not be used after ServeHTTP returns.
 type ResponseWriter interface {
 	// Header returns the response header. Content-Length is read when WriteHeader is called, and changes made
-	// after the header is sent (on Flush, a large Write, or when ServeHTTP returns) have no effect.
+	// after the header is sent (on Flush, a large Write, any Write once Content-Length is set, or when
+	// ServeHTTP returns) have no effect.
 	Header() *Header
 	// WriteHeader sends the status code. Only the first call has an effect; it panics on codes outside 100–999.
 	WriteHeader(statusCode int)
@@ -67,6 +68,7 @@ type response struct {
 	declared    int64
 	written     int64
 	buf         []byte
+	complete    bool // the sink implements exchange.CompleteSink
 	err         error
 	hijacked    bool
 	dead        bool
@@ -75,6 +77,7 @@ type response struct {
 
 func (w *response) init(sink exchange.ResponseSink, req *Request) {
 	w.sink = sink
+	_, w.complete = sink.(exchange.CompleteSink)
 	w.head = req.method == "HEAD"
 	w.declared = -1
 }
@@ -135,7 +138,10 @@ func (w *response) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	if !w.sentHeader {
-		if len(w.buf)+len(p) <= responseBufferSize {
+		// A declared length already fixes the framing, so buffering would only cost a copy. Sinks that can
+		// send a whole response at once still get it buffered, to end the stream on the last frame.
+		buffer := w.declared < 0 || w.complete
+		if buffer && len(w.buf)+len(p) <= responseBufferSize {
 			w.buf = append(w.buf, p...)
 			return len(p), nil
 		}

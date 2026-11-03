@@ -380,6 +380,9 @@ func TestServerRejectsMalformed(t *testing.T) {
 		{"invalid target", "GET /a%zz HTTP/1.1\r\nHost: h\r\n\r\n", 400},
 		{"bare percent", "GET /% HTTP/1.1\r\nHost: h\r\n\r\n", 400},
 		{"short escape", "GET /a%2 HTTP/1.1\r\nHost: h\r\n\r\n", 400},
+		{"non-token name", "GET / HTTP/1.1\r\nHost: h\r\nX(A): v\r\n\r\n", 400},
+		{"CR in value", "GET / HTTP/1.1\r\nHost: h\r\nX: a\rb\r\n\r\n", 400},
+		{"NUL in value", "GET / HTTP/1.1\r\nHost: h\r\nX: a\x00b\r\n\r\n", 400},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -22,6 +22,9 @@ type Exchange interface {
 	SetHost(host []byte) error
 	SetProto(major, minor int)
 	AddHeader(name, value []byte) error
+	// AddValidHeader is AddHeader without validation, for protocols that have already checked that name is a
+	// lowercase token and value contains no CR, LF, or NUL. Unchecked input allows header injection.
+	AddValidHeader(name, value []byte)
 	// SetBody sets the request body; contentLength is -1 when unknown. A nil body means no body.
 	SetBody(body io.Reader, contentLength int64)
 	SetConn(remoteAddr net.Addr, tlsState *tls.ConnectionState)

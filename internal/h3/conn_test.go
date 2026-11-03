@@ -49,6 +49,7 @@ func (x *fakeExchange) AddHeader(n, v []byte) error {
 	x.header = append(x.header, [2]string{string(n), string(v)})
 	return nil
 }
+func (x *fakeExchange) AddValidHeader(n, v []byte)                      { _ = x.AddHeader(n, v) }
 func (x *fakeExchange) SetBody(b io.Reader, n int64)                    { x.body, x.contentLength = b, n }
 func (x *fakeExchange) SetConn(net.Addr, *tls.ConnectionState)          {}
 func (x *fakeExchange) SetDisconnectWatcher(exchange.DisconnectWatcher) {}

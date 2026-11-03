@@ -55,6 +55,8 @@ func (x *serverExchange) AddHeader(name, value []byte) error {
 	return x.req.header.addWire(name, value)
 }
 
+func (x *serverExchange) AddValidHeader(name, value []byte) { x.req.header.addValid(name, value) }
+
 func (x *serverExchange) SetBody(body io.Reader, contentLength int64) {
 	if body == nil {
 		body = noBody{}

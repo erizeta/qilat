@@ -112,6 +112,25 @@ func TestHeaderSanitizesValues(t *testing.T) {
 	}
 }
 
+func TestHeaderSetBytesExistingSanitizes(t *testing.T) {
+	var h Header
+	h.Set("X-A", "ok")
+	h.SetBytes("X-A", []byte("a\nb"))
+	if got := h.Get("x-a"); got != "a b" {
+		t.Fatalf("value = %q", got)
+	}
+}
+
+func TestHeaderAddValid(t *testing.T) {
+	var h Header
+	name, value := []byte("x-trusted"), []byte("v")
+	h.addValid(name, value)
+	name[0], value[0] = 'y', 'w'
+	if got := h.Get("x-trusted"); got != "v" {
+		t.Fatalf("value = %q, want a copy", got)
+	}
+}
+
 func TestHeaderAddWire(t *testing.T) {
 	var h Header
 	if err := h.addWire([]byte("Host"), []byte("example.com")); err != nil {

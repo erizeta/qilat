@@ -290,10 +290,18 @@ func validToken(b []byte) bool {
 	return len(b) > 0
 }
 
-func isTokenChar(c byte) bool {
-	switch {
-	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
-		return true
+func isTokenChar(c byte) bool { return tokenTable[c] }
+
+var tokenTable = func() (t [256]bool) {
+	for c := '0'; c <= '9'; c++ {
+		t[c] = true
 	}
-	return bytes.IndexByte([]byte("!#$%&'*+-.^_`|~"), c) >= 0
-}
+	for c := 'a'; c <= 'z'; c++ {
+		t[c] = true
+		t[c-'a'+'A'] = true
+	}
+	for _, c := range "!#$%&'*+-.^_`|~" {
+		t[c] = true
+	}
+	return t
+}()

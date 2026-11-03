@@ -192,17 +192,67 @@ func bodyAllowed(status int, head bool) bool {
 
 // writeField writes name in canonical form (Content-Type), which old HTTP/1.1 clients expect.
 func writeField(bw *bufio.Writer, name, value []byte) {
+	if s := canonicalName(name); s != "" {
+		_, _ = bw.WriteString(s)
+	} else if bw.Available() >= len(name) {
+		// Appending within the available space keeps the canonical copy in bufio's buffer without allocating.
+		_, _ = bw.Write(appendCanonical(bw.AvailableBuffer(), name))
+	} else {
+		upper := true
+		for _, ch := range name {
+			if upper && 'a' <= ch && ch <= 'z' {
+				ch -= 'a' - 'A'
+			}
+			_ = bw.WriteByte(ch)
+			upper = ch == '-'
+		}
+	}
+	_, _ = bw.WriteString(": ")
+	_, _ = bw.Write(value)
+	_, _ = bw.WriteString("\r\n")
+}
+
+// canonicalName returns the canonical form of common response fields, or "" for others.
+func canonicalName(name []byte) string {
+	switch string(name) {
+	case "content-type":
+		return "Content-Type"
+	case "content-length":
+		return "Content-Length"
+	case "content-encoding":
+		return "Content-Encoding"
+	case "date":
+		return "Date"
+	case "server":
+		return "Server"
+	case "alt-svc":
+		return "Alt-Svc"
+	case "vary":
+		return "Vary"
+	case "cache-control":
+		return "Cache-Control"
+	case "set-cookie":
+		return "Set-Cookie"
+	case "location":
+		return "Location"
+	case "etag":
+		return "Etag"
+	case "last-modified":
+		return "Last-Modified"
+	}
+	return ""
+}
+
+func appendCanonical(dst, name []byte) []byte {
 	upper := true
 	for _, ch := range name {
 		if upper && 'a' <= ch && ch <= 'z' {
 			ch -= 'a' - 'A'
 		}
-		_ = bw.WriteByte(ch)
+		dst = append(dst, ch)
 		upper = ch == '-'
 	}
-	_, _ = bw.WriteString(": ")
-	_, _ = bw.Write(value)
-	_, _ = bw.WriteString("\r\n")
+	return dst
 }
 
 func writeStatusLine(bw *bufio.Writer, status int) {

@@ -7,6 +7,16 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+### Changed
+
+- HTTP/1.1 requests with many headers cost less server CPU: the parser validates each field once and the core
+  no longer re-validates and sanitizes it, and response header names are written in one call. With 20 request
+  headers, a request takes 19% less time in memory and 14% less pipelined. Validation is unchanged: names that
+  are not tokens and values with control characters are still rejected with 400.
+- When the handler sets Content-Length, an HTTP/1.1 response sends its header on the first `Write` and writes
+  the body directly instead of buffering it first. Header changes made after that `Write` have no effect, as
+  with any streamed response.
+
 ## [0.2.1] - 2026-11-02
 
 ### Changed
