@@ -3,7 +3,7 @@ module github.com/erizeta/qilat/benchmarks
 go 1.26.0
 
 require (
-	github.com/quic-go/quic-go v0.64.1
+	github.com/quic-go/quic-go v0.65.0
 	github.com/valyala/fasthttp v1.77.0
 )
 
