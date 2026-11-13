@@ -7,7 +7,7 @@ replace github.com/erizeta/qilat => ../..
 require (
 	github.com/erizeta/qilat v0.0.0-00010101000000-000000000000
 	github.com/go-chi/chi/v5 v5.5.0
-	github.com/quic-go/quic-go v0.64.1
+	github.com/quic-go/quic-go v0.65.0
 	github.com/rs/cors v1.11.1
 )
 
