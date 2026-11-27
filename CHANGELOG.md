@@ -7,6 +7,12 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-27
+
+### Changed
+
+- qilat requires golang.org/x/net v0.63.0 (was v0.62.0). qilat's API is unchanged.
+
 ## [0.2.3] - 2026-11-16
 
 ### Changed
@@ -128,7 +134,8 @@ Found by the pre-release security and code reviews and fixed before the first re
 - `Transport.CloseIdleConnections` racing with the idle timer could panic, and stopped idle reaping for
   HTTP/2 and HTTP/3 connections that were busy at the time.
 
-[Unreleased]: https://github.com/erizeta/qilat/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/erizeta/qilat/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/erizeta/qilat/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/erizeta/qilat/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/erizeta/qilat/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/erizeta/qilat/compare/v0.2.0...v0.2.1
